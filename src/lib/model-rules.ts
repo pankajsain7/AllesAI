@@ -1,49 +1,60 @@
 import type { ModelInfo } from "./models";
 import type { ApiProviderKey } from "./providers";
 
-const REMOVED_MODEL_TOKENS = ["mis" + "tral"];
-const CONSENSUS_EXCLUDED_PROVIDERS = new Set<ModelInfo["provider"]>(["qwen"]);
-const CONSENSUS_EXCLUDED_FAMILY_IDS = new Set(["gpt-oss-120b"]);
+const REMOVED_MODEL_TOKENS = ["mis" + "tral", "north-mini-code", "north mini code"];
 
-// Consensus works well with a small panel (2-3 answers). This priority list only
-// feeds the synthesizer/judge dropdowns — the panel itself comes from the user's
-// active columns.
-export const CONSENSUS_PRIORITY_MODEL_IDS = [
+// The ONLY models allowed to run consensus and council (as synthesizer,
+// debater, or judge). Curated so answer quality stays consistent and high no
+// matter which one the user picks.
+export const CONSENSUS_COUNCIL_MODEL_IDS = [
+  // Gemini first — 1M context window handles even the largest multi-model
+  // transcripts without truncation.
+  "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
-  "ollama-cloud/gemma4:31b",
   "meta-llama/llama-4-scout-17b-16e-instruct",
-  "ollama-cloud/cogito-2.1:671b",
+  "opencode/big-pickle",
+  "opencode/deepseek-v4-flash-free",
+  "opencode/mimo-v2.5-free",
+  "ollama-cloud/gemma4:31b",
   "ollama-cloud/nemotron-3-super",
 ] as const;
 
-// A council debates best with a wider bench (4-5 members). Primaries seat the
-// table; fallbacks backfill dropouts so the room stays quorate.
-export const COUNCIL_PRIMARY_MODEL_IDS = [
-  "gemini-2.5-flash-lite",
-  "ollama-cloud/gemma4:31b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "ollama-cloud/cogito-2.1:671b",
-] as const;
+const ALLOWED_ID_SET = new Set<string>(CONSENSUS_COUNCIL_MODEL_IDS);
+// Ollama models are allowed whether they resolve to the cloud or a local route
+// of the same model name.
+const ALLOWED_OLLAMA_NAMES = new Set(["gemma4:31b", "nemotron-3-super"]);
 
-export const COUNCIL_FALLBACK_MODEL_IDS = [
-  "ollama-cloud/nemotron-3-super",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-] as const;
+function isConsensusAllowedModel(model: Pick<ModelInfo, "id" | "apiProvider">): boolean {
+  if (ALLOWED_ID_SET.has(model.id)) return true;
+  // All Gemini models are allowed — they have large context windows and strong
+  // synthesis quality, making them ideal fallbacks for large transcripts.
+  if (model.apiProvider === "gemini") return true;
+  if (model.apiProvider === "ollama-cloud" || model.apiProvider === "ollama-local") {
+    const name = model.id
+      .replace(/^ollama-cloud\//, "")
+      .replace(/^ollama\//, "")
+      .replace(/:latest$/, "");
+    return ALLOWED_OLLAMA_NAMES.has(name);
+  }
+  return false;
+}
 
-// A dedicated judge should be an impartial, capable model. Ordered by preference;
-// the client prefers a judge that is NOT one of the panel answers being scored.
-export const JUDGE_MODEL_IDS = [
-  "gemini-2.5-flash-lite",
-  "ollama-cloud/cogito-2.1:671b",
-  "ollama-cloud/gemma4:31b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-] as const;
+// Default synthesizer/judge preference order (all from the allowlist above).
+export const CONSENSUS_PRIORITY_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
 
-// Council participants may include the user's active panel models even when the
-// consensus synthesizer excludes them (e.g. qwen / gpt-oss). This is the looser
-// gate used only to seat council members.
+// Default council debaters + judge pool (all from the allowlist above).
+export const COUNCIL_PRIMARY_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
+
+// No silent fallback bench — if a user-selected model fails, the run errors out.
+export const COUNCIL_FALLBACK_MODEL_IDS = [] as const;
+
+// Judge pool (all from the allowlist above).
+export const JUDGE_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
+
+// Council debaters and the judge must come from the same curated allowlist as
+// consensus, so debate/verdict quality is consistent.
 export function canUseModelForCouncil(model: ModelInfo): boolean {
-  return !isRemovedModel(model);
+  return !isRemovedModel(model) && isConsensusAllowedModel(model);
 }
 
 type ProviderAccessSettings = {
@@ -68,11 +79,7 @@ export function isRemovedModel(model: Pick<ModelInfo, "id" | "label" | "familyId
 }
 
 export function canUseModelForConsensus(model: ModelInfo): boolean {
-  return (
-    !isRemovedModel(model) &&
-    !CONSENSUS_EXCLUDED_PROVIDERS.has(model.provider) &&
-    !CONSENSUS_EXCLUDED_FAMILY_IDS.has(model.familyId)
-  );
+  return !isRemovedModel(model) && isConsensusAllowedModel(model);
 }
 
 export function hasProviderAccessForConsensus(
@@ -96,7 +103,6 @@ export function getModelAlias(modelOrId: Pick<ModelInfo, "id" | "label" | "famil
   if (haystack.includes("gemini-2.5") || haystack.includes("gemini flash lite")) return "Gemini 2.5";
   if (haystack.includes("gemma4") || haystack.includes("gemma-4") || haystack.includes("gemma 4")) return "Gemma 4";
   if (haystack.includes("llama-4") || haystack.includes("llama 4")) return "Llama 4";
-  if (haystack.includes("cogito")) return "Cogito";
   if (haystack.includes("nemotron")) return "Nemotron";
   if (haystack.includes("gpt-oss") || haystack.includes("gpt oss")) return "GPT";
   if (haystack.includes("qwen")) return "Qwen";

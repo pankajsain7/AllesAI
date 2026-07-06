@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Sparkles, Users, X } from "lucide-react";
 import {
   filterEnabledModelIds,
+  getEnabledRoutes,
   useChat,
   useSettings,
   type ProviderToggleSettings,
@@ -18,11 +19,8 @@ import {
 } from "@/lib/models";
 import {
   CONSENSUS_PRIORITY_MODEL_IDS,
-  COUNCIL_FALLBACK_MODEL_IDS,
-  COUNCIL_PRIMARY_MODEL_IDS,
   JUDGE_MODEL_IDS,
   canUseModelForConsensus,
-  canUseModelForCouncil,
   getModelAlias,
   hasProviderAccessForConsensus,
 } from "@/lib/model-rules";
@@ -35,12 +33,18 @@ type ConsensusChoice = {
   model: NonNullable<ReturnType<typeof getModel>>;
 };
 
+// If the upstream provider stalls (no bytes at all for this long), abort and
+// try the next fallback model.
+const CONSENSUS_STALL_TIMEOUT_MS = 30_000; // single synthesizer — fast or fallback
+const COUNCIL_STALL_TIMEOUT_MS = 60_000;  // council rounds can legitimately pause longer
+
 type ConsensusMode = "single" | "council";
 
 
 type ConsensusStreamEvent =
   | { type: "delta"; text?: string }
   | { type: "judge"; model?: string; winner?: string; confidence?: string; rankings?: SharedResultJudge["rankings"] }
+  | { type: "judge_error"; message?: string }
   | { type: "status"; modelId?: string; model?: string; status?: string; round?: string; message?: string; replacementModelId?: string; replacementModel?: string }
   | { type: "round_start"; round?: string; title?: string }
   | { type: "council_note"; round?: string; roundTitle?: string; modelId?: string; model?: string; text?: string }
@@ -97,6 +101,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
     [apiKey, cloudOllamaEnabled, geminiApiKey, geminiEnabled, groqEnabled, localEnabled, ollamaApiKey, opencodeApiKey, opencodeEnabled]
   );
 
+  const settingsSnapshot = useSettings((s) => s);
+
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [saved, setSaved] = useState(false);
@@ -110,6 +116,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
       ? s.conversations[convId]?.sharedResults?.find((result) => result.id === activeResultId)
       : undefined
   );
+  const abortRef = useRef<AbortController | null>(null);
 
   const localModelNames = useMemo(
     () =>
@@ -131,38 +138,6 @@ export function ConsensusButton({ convId }: { convId: string }) {
       .sort((a, b) => b.model.context - a.model.context);
   }, [accessSettings, localModelNames]);
 
-  // Auto-picked synthesizer chain: top available large-context model, plus a
-  // second as fallback. No user selection — one model is enough if that's all
-  // that's available.
-  const synthesizerChoices = consensusChoices.slice(0, 2);
-
-  const councilPrimaryIds = useMemo(
-    () =>
-      unique(
-        COUNCIL_PRIMARY_MODEL_IDS.map((id) =>
-          resolvePreferredRoute(id, accessSettings, localModelNames)
-        ).filter((id): id is string => Boolean(id))
-      ),
-    [accessSettings, localModelNames]
-  );
-  const councilFallbackIds = useMemo(
-    () =>
-      unique(
-        COUNCIL_FALLBACK_MODEL_IDS.map((id) =>
-          resolvePreferredRoute(id, accessSettings, localModelNames)
-        ).filter((id): id is string => Boolean(id))
-      ),
-    [accessSettings, localModelNames]
-  );
-  const councilModeratorIds = useMemo(
-    () =>
-      unique([
-        ...consensusChoices.map((choice) => choice.id),
-        ...councilFallbackIds,
-        ...councilPrimaryIds,
-      ]),
-    [consensusChoices, councilFallbackIds, councilPrimaryIds]
-  );
   const judgeChoiceIds = useMemo(
     () =>
       unique(
@@ -172,6 +147,22 @@ export function ConsensusButton({ convId }: { convId: string }) {
       ),
     [accessSettings, localModelNames]
   );
+
+  // Every model the user currently has access to and could plausibly act as
+  // synthesizer or judge with — this is what both pickers let them choose
+  // from, not just the small fixed priority bench above.
+  const modelCandidates = useMemo<ConsensusChoice[]>(() => {
+    const seen = new Set<string>();
+    const list: ConsensusChoice[] = [];
+    for (const model of getEnabledRoutes(settingsSnapshot)) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      if (!canUseModelForConsensus(model)) continue;
+      if (!hasProviderAccessForConsensus(model.apiProvider, accessSettings)) continue;
+      list.push({ id: model.id, model });
+    }
+    return list;
+  }, [settingsSnapshot, accessSettings]);
 
   if (!conv) return null;
 
@@ -184,10 +175,33 @@ export function ConsensusButton({ convId }: { convId: string }) {
     conv.threads[modelId]?.messages.some((message) => message.role === "assistant" && message.pending)
   );
 
-  const selectedConsensusModel = synthesizerChoices[0]?.id ?? "";
-  const secondSynthesizerModel = synthesizerChoices[1]?.id;
+  // The user can pick any eligible model as synthesizer; default to the
+  // largest-context auto pick (Gemini comes first since it has a 1M context
+  // window and handles large multi-model transcripts best).
+  const modelCandidateIds = new Set(modelCandidates.map((choice) => choice.id));
+  const selectedConsensusModel =
+    consensusChoices[0]?.id ?? modelCandidates[0]?.id ?? "";
   const consensusInfo = getModel(selectedConsensusModel);
   const consensusSource = consensusInfo ? API_PROVIDERS[consensusInfo.apiProvider] : undefined;
+
+  // Auto-build a silent fallback chain: Gemini first (largest context window),
+  // then remaining eligible models sorted by context size descending. The
+  // server will silently try each in order — the user never sees which model
+  // actually ran.
+  const autoFallbackModels = useMemo(
+    () =>
+      consensusChoices
+        .filter((c) => c.id !== selectedConsensusModel)
+        .sort((a, b) => {
+          const aGemini = a.model.apiProvider === "gemini";
+          const bGemini = b.model.apiProvider === "gemini";
+          if (aGemini && !bGemini) return -1;
+          if (!aGemini && bGemini) return 1;
+          return b.model.context - a.model.context;
+        })
+        .map((c) => c.id),
+    [consensusChoices, selectedConsensusModel]
+  );
 
   const responses: { model: string; content: string }[] = [];
   const respondingModelIds: string[] = [];
@@ -211,34 +225,39 @@ export function ConsensusButton({ convId }: { convId: string }) {
     }
   }
 
-  // Council seats the user's own answering models first (so it works with
-  // whatever keys they actually have), then backfills from the priority bench,
-  // capped at 5 for a manageable debate.
-  const councilParticipantIds = unique([
-    ...respondingModelIds.filter((id) => {
-      const model = getModel(id);
-      return Boolean(
-        model &&
-          canUseModelForCouncil(model) &&
-          hasProviderAccessForConsensus(model.apiProvider, accessSettings)
-      );
-    }),
-    ...councilPrimaryIds,
-  ]).slice(0, 5);
+  // Council debaters: first two available allowlist models, auto-selected
+  // with largest-context (Gemini) models prioritised.
+  const councilPriorityPool = useMemo(
+    () =>
+      [...modelCandidates]
+        .sort((a, b) => {
+          const aGemini = a.model.apiProvider === "gemini";
+          const bGemini = b.model.apiProvider === "gemini";
+          if (aGemini && !bGemini) return -1;
+          if (!aGemini && bGemini) return 1;
+          return b.model.context - a.model.context;
+        })
+        .map((c) => c.id),
+    [modelCandidates]
+  );
+  const defaultDebaterIds = councilPriorityPool.slice(0, 2);
+  const selectedDebaterIds = defaultDebaterIds.filter((id) => modelCandidateIds.has(id));
+  // Every remaining model becomes the silent fallback pool for council — if
+  // a debater or judge fails the server keeps trying down the list.
+  const councilFallbackModels = councilPriorityPool.filter(
+    (id) => !selectedDebaterIds.includes(id)
+  );
 
-  // Prefer a judge that is NOT one of the panel answers being scored.
-  const selectedJudgeModel =
-    judgeChoiceIds.find((id) => !respondingModelIds.includes(id)) ??
-    judgeChoiceIds[0] ??
-    selectedConsensusModel;
-  const judgeFallbackModels = unique([
-    ...judgeChoiceIds.filter((id) => id !== selectedJudgeModel),
-    selectedConsensusModel,
-  ]).filter((id) => id && id !== selectedJudgeModel);
+  // Default judge panel: two independent judges, preferring non-debaters.
+  const defaultJudgeIds = unique([
+    ...judgeChoiceIds.filter((id) => !selectedDebaterIds.includes(id)),
+    ...councilPriorityPool.filter((id) => !selectedDebaterIds.includes(id)),
+    ...judgeChoiceIds,
+    ...councilPriorityPool,
+  ]).slice(0, 2);
+  const selectedJudgeIds = defaultJudgeIds.filter((id) => modelCandidateIds.has(id));
 
   const hasAnyResponse = responses.length >= 1;
-  const hasCouncilQuorum = responses.length >= 2;
-  const isSolo = responses.length === 1;
   const hasConsensusSource = Boolean(
     consensusInfo &&
       hasProviderAccessForConsensus(consensusInfo.apiProvider, accessSettings) &&
@@ -246,7 +265,9 @@ export function ConsensusButton({ convId }: { convId: string }) {
   );
   const canRunConsensus = hasAnyResponse && hasConsensusSource && !hasPendingModels;
   const canRunCouncil =
-    hasCouncilQuorum && !hasPendingModels && councilParticipantIds.length >= 2;
+    hasAnyResponse &&
+    !hasPendingModels &&
+    modelCandidates.length >= 1;
   const consensusDisabledReason = hasPendingModels
     ? "Waiting for all models to finish"
     : !hasAnyResponse
@@ -258,10 +279,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
           : "Consensus unavailable";
   const councilDisabledReason = hasPendingModels
     ? "Waiting for all models to finish"
-    : !hasCouncilQuorum
-      ? "Need at least two completed answers"
-      : councilParticipantIds.length < 2
-        ? "Council needs at least two available models — add another provider key"
+    : !hasAnyResponse
+      ? "Need at least one completed answer as debate material"
+      : modelCandidates.length < 1
+        ? "No eligible models — add a provider key in Settings"
         : "Model council unavailable";
 
   const persistConsensus = (content: string) => {
@@ -286,8 +307,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
       setError("Need at least one completed answer.");
       return;
     }
-    if (mode === "council" && !hasCouncilQuorum) {
-      setError("Model council needs at least two completed answers.");
+    if (mode === "council" && !hasAnyResponse) {
+      setError("Model council needs at least one completed answer as debate material.");
       return;
     }
     if (mode === "single" && !selectedConsensusModel) {
@@ -302,8 +323,12 @@ export function ConsensusButton({ convId }: { convId: string }) {
       );
       return;
     }
-    if (mode === "council" && councilParticipantIds.length < 2) {
-      setError("Model council needs at least two available models. Add another provider key in Settings.");
+    if (mode === "council" && selectedDebaterIds.length < 2) {
+      setError("Pick two debater models for the council.");
+      return;
+    }
+    if (mode === "council" && selectedJudgeIds.length < 1) {
+      setError("Pick a judge model to conclude the council.");
       return;
     }
 
@@ -311,6 +336,14 @@ export function ConsensusButton({ convId }: { convId: string }) {
     let output = "";
     let resultId: string | null = null;
     let streamError: string | null = null;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const stallMs = mode === "council" ? COUNCIL_STALL_TIMEOUT_MS : CONSENSUS_STALL_TIMEOUT_MS;
+    const resetWatchdog = () => {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => controller.abort(), stallMs);
+    };
     try {
       resultId = startSharedResult(convId, {
         type: mode === "council" ? "council" : "consensus",
@@ -320,10 +353,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
         content: "",
         qualityMode: "deep" as const,
         pending: true,
-        participants: mode === "council" ? councilParticipantIds.map((id) => getModelAlias(id)) : undefined,
+        participants: mode === "council" ? selectedDebaterIds.map((id) => getModelAlias(id)) : undefined,
         statuses:
           mode === "council"
-            ? councilParticipantIds.map((id) => ({
+            ? selectedDebaterIds.map((id) => ({
                 modelId: id,
                 model: getModelAlias(id),
                 status: "queued",
@@ -335,23 +368,23 @@ export function ConsensusButton({ convId }: { convId: string }) {
       });
       setActiveResultId(resultId);
 
+      resetWatchdog();
       const res = await fetch("/api/consensus", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           mode,
           qualityMode: "deep",
           prompt: latestPrompt,
           responses,
           consensusModel: selectedConsensusModel,
-          candidateModels: mode === "council" ? councilParticipantIds : undefined,
-          moderatorModels: mode === "council" ? councilModeratorIds : undefined,
-          judgeModel: selectedJudgeModel,
-          judgeFallbackModels,
-          fallbackModels:
-            mode === "council"
-              ? councilFallbackIds
-              : [secondSynthesizerModel].filter((id): id is string => Boolean(id)),
+          candidateModels: mode === "council" ? selectedDebaterIds : undefined,
+          moderatorModels: mode === "council" ? selectedJudgeIds : undefined,
+          judgeModels: mode === "council" ? selectedJudgeIds : [],
+          // Full fallback chain — server tries each silently on failure or
+          // context overflow, so the user always gets a result.
+          fallbackModels: mode === "council" ? councilFallbackModels : autoFallbackModels,
           apiKey,
           geminiApiKey,
           opencodeApiKey,
@@ -369,8 +402,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
       const decoder = new TextDecoder();
       let buf = "";
       while (true) {
+        resetWatchdog();
         const { value, done } = await reader.read();
         if (done) break;
+        resetWatchdog();
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -420,6 +455,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
                 model: obj.model,
                 content: obj.text,
               });
+            } else if (obj.type === "judge_error") {
+              // judge scoring failed — silent, synthesis continues without scorecard
             } else if (obj.type === "error") {
               streamError = obj.message || "Consensus stream failed.";
               setError(streamError);
@@ -441,10 +478,17 @@ export function ConsensusButton({ convId }: { convId: string }) {
       }
       if (saveConsensusToChat) persistConsensus(output);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message =
+        e instanceof Error && e.name === "AbortError"
+          ? `No response after ${Math.round(stallMs / 1000)}s — the selected model may be stalled or unreachable. Try a different synthesizer/judge.`
+          : e instanceof Error
+            ? e.message
+            : String(e);
       setError(message);
       if (resultId) finishSharedResult(convId, resultId, { error: message });
     } finally {
+      if (watchdog) clearTimeout(watchdog);
+      abortRef.current = null;
       setLoading(false);
     }
   };
@@ -498,7 +542,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          onClick={() => !loading && setOpen(false)}
+          onClick={() => {
+            abortRef.current?.abort();
+            setOpen(false);
+          }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -514,12 +561,17 @@ export function ConsensusButton({ convId }: { convId: string }) {
                     {runMode === "council" ? "Model council" : "Consensus answer"}
                   </div>
                   <div className="text-[11px] text-[var(--fg-muted)]">
-                    Consensus from {responses.length} answers
+                    {runMode === "council"
+                      ? "Two models debate, then the judge decides"
+                      : `Consensus from ${responses.length} answers`}
                   </div>
                 </div>
               </div>
               <button
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  abortRef.current?.abort();
+                  setOpen(false);
+                }}
                 className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
                 title="Close"
               >
@@ -527,36 +579,17 @@ export function ConsensusButton({ convId }: { convId: string }) {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-5 py-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-[var(--fg-muted)]">
-                <span>Synthesizer:</span>
-                {synthesizerChoices.length === 0 && (
-                  <span className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[var(--fg)]">
-                    No eligible model
-                  </span>
-                )}
-                {synthesizerChoices.map(({ id, model }, index) => (
-                  <span
-                    key={id}
-                    className={
-                      "rounded-md border px-2 py-1 " +
-                      (index === 0
-                        ? "border-[var(--border-strong)] bg-[var(--bg-elevated)] font-medium text-[var(--fg)]"
-                        : "border-dashed border-[var(--border)] text-[var(--fg-muted)]")
-                    }
-                    title={index === 0 ? "Primary synthesizer (largest context)" : "Fallback synthesizer"}
-                  >
-                    {getModelAlias(model)}
-                    {index > 0 ? " (fallback)" : ""}
-                  </span>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-5 py-2">
                 <button
                   type="button"
                   disabled={loading || !canRunConsensus}
                   onClick={() => runConsensus("single")}
-                  className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-2 py-1 text-xs font-medium text-[var(--accent-fg)] hover:opacity-90 disabled:opacity-50"
+                  className={
+                    "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium disabled:opacity-50 " +
+                    (runMode === "single"
+                      ? "bg-[var(--accent)] text-[var(--accent-fg)] hover:opacity-90"
+                      : "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--fg)] hover:border-[var(--border-strong)]")
+                  }
                 >
                   <Sparkles size={12} />
                   Consensus
@@ -565,17 +598,17 @@ export function ConsensusButton({ convId }: { convId: string }) {
                   type="button"
                   disabled={loading || !canRunCouncil}
                   onClick={() => runConsensus("council")}
-                  className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--fg)] hover:border-[var(--border-strong)] disabled:opacity-50"
-                  title={
-                    canRunCouncil
-                      ? "Run a multi-model council with a dedicated final moderator"
-                      : councilDisabledReason
+                  className={
+                    "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium disabled:opacity-50 " +
+                    (runMode === "council"
+                      ? "bg-[var(--accent)] text-[var(--accent-fg)] hover:opacity-90"
+                      : "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--fg)] hover:border-[var(--border-strong)]")
                   }
+                  title={canRunCouncil ? "Run a multi-model council with a dedicated final moderator" : councilDisabledReason}
                 >
                   <Users size={12} />
                   Council
                 </button>
-              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -646,7 +679,6 @@ function findLocalModelName(cloudModelName: string, localNames: Set<string>): st
   const normalized = stripLatest(cloudModelName).toLowerCase();
   if (localNames.has(normalized)) return normalized;
   if (normalized === "gemma4:31b" && localNames.has("gemma4:31b")) return "gemma4:31b";
-  if (normalized === "cogito-2.1:671b" && localNames.has("cogito-2.1:671b")) return "cogito-2.1:671b";
   if (normalized === "nemotron-3-super" && localNames.has("nemotron-3-super")) return "nemotron-3-super";
   return null;
 }

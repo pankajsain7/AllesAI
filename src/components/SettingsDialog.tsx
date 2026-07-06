@@ -11,6 +11,7 @@ import {
   toOpenCodeModelId,
   type CustomProvider,
 } from "@/lib/models";
+import { isRemovedModelName } from "@/lib/model-rules";
 import { uid } from "@/lib/utils";
 import { ChevronDown, ExternalLink, Plus, RefreshCw, Search, Settings as SettingsIcon, Trash2, X } from "lucide-react";
 
@@ -118,6 +119,7 @@ function ModelBrowsePanel({
 
   const filtered = models
     .filter((m) => !excluded.has(m.id))
+    .filter((m) => !isRemovedModelName(m.id))
     .filter((m) => m.id.toLowerCase().includes(filter.trim().toLowerCase()))
     .filter((m) => !(isFree && hidePaid) || isFree(m.id))
     .sort((a, b) => {

@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import {
   useChat,
-  type CouncilMemberStatus,
   type CouncilRoundId,
   type SharedResult,
   type SharedResultJudge,
@@ -224,6 +223,33 @@ function ResultState({ result }: { result: SharedResult }) {
   );
 }
 
+// Analysis section headers that should be hidden under "Show analysis details"
+const ANALYSIS_HEADERS = [
+  "**Why this is best**",
+  "**Confidence**",
+  "**Quality scorecard**",
+  "**Claim checks**",
+  "**Agreement**",
+  "**Disagreement**",
+  "**Missing context**",
+  "**Model notes**",
+];
+
+function splitAnalysis(text: string): { body: string; analysis: string } {
+  let splitIdx = -1;
+  for (const header of ANALYSIS_HEADERS) {
+    const idx = text.indexOf(header);
+    if (idx !== -1 && (splitIdx === -1 || idx < splitIdx)) {
+      splitIdx = idx;
+    }
+  }
+  if (splitIdx === -1) return { body: text, analysis: "" };
+  return {
+    body: text.slice(0, splitIdx).trim(),
+    analysis: text.slice(splitIdx).trim(),
+  };
+}
+
 function ConsensusResult({ result }: { result: SharedResult }) {
   if (!result.content.trim() && result.pending) {
     return <div className="text-xs text-[var(--fg-muted)]">Synthesizing best answer...</div>;
@@ -232,7 +258,10 @@ function ConsensusResult({ result }: { result: SharedResult }) {
   const divider = "\n---\n";
   const dividerIdx = result.content.indexOf(divider);
   const answerPart = dividerIdx >= 0 ? result.content.slice(0, dividerIdx).trim() : result.content;
-  const detailsPart = dividerIdx >= 0 ? result.content.slice(dividerIdx + divider.length).trim() : "";
+  const rawDetailsPart = dividerIdx >= 0 ? result.content.slice(dividerIdx + divider.length).trim() : "";
+
+  // Split detailsPart into essay body (visible) and analysis metadata (hidden)
+  const { body: detailsBody, analysis: detailsAnalysis } = splitAnalysis(rawDetailsPart);
 
   const hasExtraDetails =
     result.confidence ||
@@ -241,18 +270,21 @@ function ConsensusResult({ result }: { result: SharedResult }) {
     (result.participants?.length ?? 0) > 0 ||
     (result.judge?.rankings.length ?? 0) > 0;
 
+  const hasHiddenContent = detailsAnalysis || hasExtraDetails;
+
   return (
     <>
       <Markdown source={answerPart} />
-      {(detailsPart || hasExtraDetails) && (
+      {detailsBody && <Markdown source={detailsBody} />}
+      {hasHiddenContent && (
         <details className="group mt-3 overflow-hidden rounded-lg border border-[var(--border)]">
           <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--fg-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--fg)] [&::-webkit-details-marker]:hidden">
             <ChevronRight size={14} className="transition-transform group-open:rotate-90" />
             Show analysis details
           </summary>
           <div className="border-t border-[var(--border)] px-3 py-2 space-y-2 text-[11px] text-[var(--fg-muted)]">
-            {detailsPart && <Markdown source={detailsPart} />}
-            {detailsPart && hasExtraDetails && <hr className="border-[var(--border)]" />}
+            {detailsAnalysis && <Markdown source={detailsAnalysis} />}
+            {detailsAnalysis && hasExtraDetails && <hr className="border-[var(--border)]" />}
             {result.participants && result.participants.length > 0 && (
               <div>
                 <span className="font-medium text-[var(--fg)]">Models: </span>
@@ -431,42 +463,49 @@ function JudgeScorecard({ judge }: { judge: SharedResultJudge }) {
   );
 }
 
+// Build a stable Agent N map from the order models first appear in notes.
+// We use notes (not statuses) so the label matches what the user actually
+// reads — replacements that never produced a note stay invisible.
+function buildAgentMap(result: SharedResult): Map<string, string> {
+  const map = new Map<string, string>();
+  let n = 1;
+  for (const note of result.notes ?? []) {
+    if (!map.has(note.modelId)) map.set(note.modelId, `Agent ${n++}`);
+  }
+  return map;
+}
+
 function CouncilProcess({ result }: { result: SharedResult }) {
+  const agentMap = useMemo(() => buildAgentMap(result), [result.notes]);
+
+  // Show a simple "debating" spinner while any debater is still running.
+  const anyRunning = (result.statuses ?? []).some(
+    (s) => s.status === "running"
+  );
+
   return (
-    <>
-      {(result.statuses?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {result.statuses!.map((status) => (
-            <span
-              key={status.modelId}
-              className={
-                "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] " +
-                statusClass(status.status)
-              }
-              title={status.message}
-            >
-              {status.model}
-              <span className="text-[var(--fg-subtle)]">{statusLabel(status.status)}</span>
-            </span>
-          ))}
+    <div className="space-y-2">
+      {result.pending && anyRunning && (
+        <div className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]">
+          <Loader2 size={11} className="animate-spin" />
+          Models debating...
         </div>
       )}
-
-      <div className="space-y-2">
-        {ROUND_ORDER.map((round) => (
-          <CouncilRoundBlock key={round} result={result} round={round} />
-        ))}
-      </div>
-    </>
+      {ROUND_ORDER.map((round) => (
+        <CouncilRoundBlock key={round} result={result} round={round} agentMap={agentMap} />
+      ))}
+    </div>
   );
 }
 
 function CouncilRoundBlock({
   result,
   round,
+  agentMap,
 }: {
   result: SharedResult;
   round: CouncilRoundId;
+  agentMap: Map<string, string>;
 }) {
   const notes = (result.notes ?? []).filter((note) => note.round === round);
   const started = (result.rounds ?? []).some((entry) => entry.id === round);
@@ -490,7 +529,7 @@ function CouncilRoundBlock({
           notes.map((note) => (
             <div key={note.id} className="border-l-2 border-[var(--border-strong)] pl-2">
               <div className="mb-1 text-[11px] font-semibold text-[var(--fg-muted)]">
-                {note.model}
+                {agentMap.get(note.modelId) ?? note.model}
               </div>
               <div className="text-xs">
                 <Markdown source={note.content} />
@@ -501,22 +540,6 @@ function CouncilRoundBlock({
       </div>
     </div>
   );
-}
-
-function statusLabel(status: CouncilMemberStatus): string {
-  if (status === "queued") return "queued";
-  if (status === "running") return "reviewing";
-  if (status === "done") return "done";
-  if (status === "failed") return "failed";
-  return "replaced";
-}
-
-function statusClass(status: CouncilMemberStatus): string {
-  if (status === "running") return "border-blue-500/30 bg-blue-500/10 text-blue-700";
-  if (status === "done") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
-  if (status === "failed") return "border-[var(--error)]/40 bg-[var(--bg-soft)] text-[var(--error)]";
-  if (status === "replaced") return "border-amber-500/40 bg-amber-500/10 text-amber-700";
-  return "border-[var(--border)] bg-[var(--bg-soft)] text-[var(--fg-muted)]";
 }
 
 function formatTime(timestamp: number): string {

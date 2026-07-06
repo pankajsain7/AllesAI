@@ -1,6 +1,5 @@
 export type ProviderKey =
   | "openai"
-  | "cogito"
   | "deepseek"
   | "meta"
   | "nvidia"
@@ -35,7 +34,6 @@ export type ApiProviderInfo = {
 
 export const PROVIDERS: Record<ProviderKey, ProviderInfo> = {
   openai:   { key: "openai",   name: "OpenAI",   color: "#10a37f" },
-  cogito:   { key: "cogito",   name: "Cogito",   color: "#6d28d9" },
   deepseek: { key: "deepseek", name: "DeepSeek", color: "#4d6bfe" },
   meta:     { key: "meta",     name: "Meta",     color: "#0082fb" },
   nvidia:   { key: "nvidia",   name: "NVIDIA",   color: "#76b900" },
@@ -89,7 +87,6 @@ export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
 
 export const PROVIDER_ORDER: ProviderKey[] = [
   "openai",
-  "cogito",
   "deepseek",
   "meta",
   "nvidia",

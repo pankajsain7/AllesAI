@@ -245,7 +245,7 @@ export function getOpenCodeModelInfo(modelName: string): ModelInfo {
 }
 
 export function getOpenCodeModelInfos(modelNames: string[]): ModelInfo[] {
-  return Array.from(new Set(modelNames)).map(getOpenCodeModelInfo);
+  return uniqueActiveModelNames(modelNames).map(getOpenCodeModelInfo);
 }
 
 // Groq serves models from many different labs. Guess a brand tile from the
@@ -283,7 +283,7 @@ export function getGroqExtraModelInfo(modelName: string): ModelInfo {
 }
 
 export function getGroqExtraModelInfos(modelNames: string[]): ModelInfo[] {
-  return Array.from(new Set(modelNames)).map(getGroqExtraModelInfo);
+  return uniqueActiveModelNames(modelNames).map(getGroqExtraModelInfo);
 }
 
 // Extra (non-core) Gemini models a user imports via "Browse models". Gemini
@@ -307,7 +307,7 @@ export function getGeminiExtraModelInfo(modelName: string): ModelInfo {
 }
 
 export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
-  return Array.from(new Set(modelNames)).map(getGeminiExtraModelInfo);
+  return uniqueActiveModelNames(modelNames).map(getGeminiExtraModelInfo);
 }
 
 
@@ -444,7 +444,7 @@ export function getCloudOllamaModelInfo(modelName: string): ModelInfo {
 }
 
 export function getCloudOllamaModelInfos(modelNames: string[]): ModelInfo[] {
-  return Array.from(new Set(modelNames)).map(getCloudOllamaModelInfo);
+  return uniqueActiveModelNames(modelNames).map(getCloudOllamaModelInfo);
 }
 
 // Settings shows PRESET_CLOUD_OLLAMA_MODELS as "Default models" for Ollama
@@ -454,7 +454,13 @@ export function getCloudOllamaModelInfos(modelNames: string[]): ModelInfo[] {
 // showed up unless a user separately found and re-imported the exact same
 // model name. This merges the presets in so "default" actually means default.
 export function getCloudOllamaModelNames(imported: string[]): string[] {
-  return Array.from(new Set([...PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name), ...imported]));
+  return uniqueActiveModelNames([...PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name), ...imported]);
+}
+
+function uniqueActiveModelNames(modelNames: string[]): string[] {
+  return Array.from(new Set(modelNames.map((name) => name.trim()).filter(Boolean))).filter(
+    (name) => !isRemovedModelName(name)
+  );
 }
 
 export function getLocalOllamaModelInfo(modelName: string): ModelInfo {
@@ -794,21 +800,6 @@ function inferOllamaModel(modelName: string): Omit<ModelInfo, "id" | "apiProvide
       thinking: true,
       bestFor: "Reasoning",
       paramSize: size ?? "Varies",
-    };
-  }
-
-  if (lower.startsWith("cogito")) {
-    const paramSize = size ?? "Unknown";
-    return {
-      label: `Cogito ${cleanName.replace(/^cogito-?/i, "").replace(/:/g, " ").trim() || paramSize}`,
-      shortLabel: "Cogito",
-      provider: "cogito",
-      familyId: normalizeFamilyId(cleanName),
-      context: 256000,
-      category: "Reasoning",
-      thinking: true,
-      bestFor: "Careful reasoning",
-      paramSize,
     };
   }
 

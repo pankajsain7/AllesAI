@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { enhancePrompt, sendPromptToAll } from "@/lib/chat-client";
+import { abortAllStreams, enhancePrompt, sendPromptToAll } from "@/lib/chat-client";
 import {
   filterEnabledModelIds,
   isApiProviderEnabled,
@@ -43,7 +43,6 @@ export function Composer({ convId }: { convId: string }) {
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
   const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
   const [text, setText] = useState("");
-  const ctrlRef = useRef<AbortController | null>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhanceCtrlRef = useRef<AbortController | null>(null);
@@ -119,13 +118,12 @@ export function Composer({ convId }: { convId: string }) {
     e?.preventDefault();
     const t = text.trim();
     if (!t || anyPending) return;
-    ctrlRef.current = sendPromptToAll(convId, t);
+    sendPromptToAll(convId, t);
     setText("");
   };
 
   const onStop = () => {
-    ctrlRef.current?.abort();
-    ctrlRef.current = null;
+    abortAllStreams();
   };
 
   const enhanceModel = focusedModel ?? visibleSelectedModels[0] ?? null;

@@ -157,6 +157,15 @@ export type LocalOllamaModel = {
     quantization_level?: string;
   };
 };
+function sanitizeModelNames(modelNames: string[]): string[] {
+  return Array.from(new Set(modelNames.map((name) => name.trim()).filter(Boolean))).filter(
+    (name) => !isRemovedModelName(name)
+  );
+}
+
+function sanitizeLocalModels(models: LocalOllamaModel[]): LocalOllamaModel[] {
+  return models.filter((model) => !isRemovedModelName(model.name) && !isRemovedModelName(model.model));
+}
 
 export type SettingsState = {
   apiKey: string;
@@ -230,11 +239,11 @@ export const useSettings = create<SettingsState>()(
       opencodeEnabled: false,
       setOpencodeEnabled: (v) => set({ opencodeEnabled: v }),
       opencodeModels: DEFAULT_OPENCODE_MODEL_IDS,
-      setOpencodeModels: (models) => set({ opencodeModels: models }),
+      setOpencodeModels: (models) => set({ opencodeModels: sanitizeModelNames(models) }),
       groqExtraModels: [],
-      setGroqExtraModels: (models) => set({ groqExtraModels: models }),
+      setGroqExtraModels: (models) => set({ groqExtraModels: sanitizeModelNames(models) }),
       geminiExtraModels: [],
-      setGeminiExtraModels: (models) => set({ geminiExtraModels: models }),
+      setGeminiExtraModels: (models) => set({ geminiExtraModels: sanitizeModelNames(models) }),
       systemPrompt: "You are a helpful, concise assistant.",
       setSystemPrompt: (s) => set({ systemPrompt: s }),
       webSearch: false,
@@ -258,9 +267,9 @@ export const useSettings = create<SettingsState>()(
       ollamaCloudBaseUrl: "https://ollama.com",
       setOllamaCloudBaseUrl: (url) => set({ ollamaCloudBaseUrl: url }),
       ollamaCloudModels: [],
-      setOllamaCloudModels: (models) => set({ ollamaCloudModels: models }),
+      setOllamaCloudModels: (models) => set({ ollamaCloudModels: sanitizeModelNames(models) }),
       availableLocalModels: [],
-      setAvailableLocalModels: (models) => set({ availableLocalModels: models }),
+      setAvailableLocalModels: (models) => set({ availableLocalModels: sanitizeLocalModels(models) }),
       customProviders: [],
       addCustomProvider: (provider) =>
         set((s) => ({ customProviders: [...s.customProviders, provider] })),
@@ -275,7 +284,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 9,
+      version: 10,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -285,9 +294,9 @@ export const useSettings = create<SettingsState>()(
           geminiEnabled: state.geminiEnabled ?? true,
           opencodeApiKey: state.opencodeApiKey ?? "",
           opencodeEnabled: state.opencodeEnabled ?? false,
-          opencodeModels: state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS,
-          groqExtraModels: state.groqExtraModels ?? [],
-          geminiExtraModels: state.geminiExtraModels ?? [],
+          opencodeModels: sanitizeModelNames(state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS),
+          groqExtraModels: sanitizeModelNames(state.groqExtraModels ?? []),
+          geminiExtraModels: sanitizeModelNames(state.geminiExtraModels ?? []),
           systemPrompt: state.systemPrompt ?? "You are a helpful, concise assistant.",
           webSearch: state.webSearch ?? false,
           tavilyApiKey: state.tavilyApiKey ?? "",
@@ -299,7 +308,7 @@ export const useSettings = create<SettingsState>()(
           ollamaApiKey: state.ollamaApiKey ?? "",
           cloudOllamaEnabled: state.cloudOllamaEnabled ?? false,
           ollamaCloudBaseUrl: state.ollamaCloudBaseUrl ?? "https://ollama.com",
-          ollamaCloudModels: state.ollamaCloudModels ?? [],
+          ollamaCloudModels: sanitizeModelNames(state.ollamaCloudModels ?? []),
           customProviders: state.customProviders ?? [],
         };
       },

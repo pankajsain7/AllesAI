@@ -3,6 +3,23 @@ import { getModelAlias } from "@/lib/model-rules";
 
 export const runtime = "nodejs";
 
+// Hard timeout for non-streaming (judge) calls. Prevents a stalled upstream
+// from blocking the entire consensus run indefinitely.
+const GENERATE_TEXT_TIMEOUT_MS = 45_000;
+
+// Starting context budget (chars). Halved on each 413/context-too-large retry
+// so the synthesizer always gets a response even with many long model answers.
+const INITIAL_CONTEXT_BUDGET = 280_000;
+
+// Council debaters only need enough context to understand the topic and debate
+// — they don't need the full synthesizer-level transcript. Keeping this small
+// reduces latency and avoids context-overflow rejections mid-debate.
+const COUNCIL_RESPONSE_BUDGET = 80_000;
+
+// Maximum council notes shown to each debater per turn. Caps the context that
+// grows each round so later rounds don't hit token limits.
+const COUNCIL_HISTORY_CAP = 6;
+
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
@@ -33,6 +50,7 @@ type RequestBody = {
   moderatorModels?: string[];
   judgeModel?: string;
   judgeFallbackModels?: string[];
+  judgeModels?: string[];
   apiKey?: string;
   geminiApiKey?: string;
   opencodeApiKey?: string;
@@ -129,14 +147,15 @@ function synthesisPrompt(mode: QualityMode, solo: boolean): string {
       : `Quick answer mode is enabled. Be concise, but still apply the full rubric.`;
 
   const roleBlock = solo
-    ? `You are a rigorous self-review synthesizer. Only one model answer is available, so your job is to stress-test it: verify its claims, correct errors, fill gaps, and return a stronger, trustworthy final answer. Do not fabricate agreement from other models that do not exist. Be explicit that this is a single-source answer and lower your confidence accordingly.`
-    : `You are a careful consensus synthesizer. Compare the answers, resolve conflicts on the merits, and produce one superior answer. Never copy a single model's answer wholesale — synthesize.`;
+    ? `You are a rigorous expert reviewer. Only one model answer is available, so your job is to stress-test it: verify its claims, correct errors, fill gaps, and return a stronger, trustworthy final answer. Do not fabricate agreement from other models that do not exist. Be explicit that this is a single-source answer and lower your confidence accordingly.`
+    : `You are a single expert who acts as BOTH the impartial judge and the final synthesizer. There is no separate judge — you do the whole job yourself in this one pass.
+First, silently evaluate every candidate answer like a strict judge, scoring each on: accuracy (factual correctness, internal consistency), relevance (does it answer what was actually asked), completeness (full coverage, no gaps), clarity (clear, well-structured, actionable), and evidence (grounded in the supplied web context / verifiable specifics, not confident guesses).
+Then synthesize: resolve conflicts on the merits — not by majority vote — and produce one superior, decisive answer. Prefer specific, evidence-backed claims over vague or unsupported ones. Never copy a single model's answer wholesale; combine the strongest, best-supported parts and correct anything the models got wrong.`;
 
   return `${roleBlock}
 ${MODEL_NAME_RULES}
 ${temporalGrounding()}
 ${QUALITY_RUBRIC}
-If a judge scorecard is provided, treat it as advisory evidence: weigh it, but override it when the underlying answers clearly contradict the judge.
 ${deepInstruction}
 
 ${mode === "deep" ? DEEP_SECTIONS : QUICK_SECTIONS}`;
@@ -148,27 +167,28 @@ function councilPositionPrompt(mode: QualityMode): string {
       ? "Deep mode: explicitly flag unsupported claims, weak assumptions, missing evidence, and any disagreement that would change the final answer."
       : "Quick mode: keep the note short while naming the single most important strength and the single biggest risk.";
 
-  return `You are one member of an expert model council debating to reach the best possible answer.
+  return `You are one of exactly two expert models debating head-to-head to reach the single best answer for the user.
 ${temporalGrounding()}
-Refer to yourself and others only by short model names.
+Refer to yourself and the other model only by short model names.
+This is a real debate: talk directly TO the other model, respond to its specific points, and clarify precisely where and why you disagree. Do not talk past each other.
 Write visible public debate notes for the user — clear, concrete, and defensible. Never include hidden chain-of-thought or private scratch reasoning; state conclusions and the evidence for them.
-Argue in good faith: concede points that are correct, and push hard on points that are wrong or unsupported. Cite the specific claim you are addressing.
-Apply the rubric: correctness, evidence, completeness, uncertainty, disagreements, and missing context.
+Argue in good faith: concede points that are correct, and push hard on points that are wrong or unsupported. Always cite the specific claim you are addressing.
+Apply the rubric to every claim: correctness, evidence, completeness, uncertainty, disagreements, and missing context.
 ${deepInstruction}
-Do not write the final answer alone — that is the moderator's job.`;
+Do not declare a final winner or write the final answer — the judge does that after the debate.`;
 }
 
 function councilSynthesisPrompt(mode: QualityMode): string {
   const deepInstruction =
     mode === "deep"
-      ? `Deep mode: use the council notes and judge scorecard to claim-check the key statements and explain why the final answer beat the strongest alternative.`
-      : `Quick mode: keep the final verdict concise but decisive.`;
+      ? `Deep mode: claim-check the key statements from the debate and explain precisely why your verdict beats the losing position.`
+      : `Quick mode: keep the verdict concise but decisive.`;
 
-  return `You are the final moderator of an expert model council. You have the last word.
+  return `You are the impartial JUDGE of a two-model debate. You did not debate; your job is to read both models' arguments across all rounds and deliver the single best final answer for the user.
 ${MODEL_NAME_RULES}
 ${temporalGrounding()}
-Weigh the council debate, the original answers, and any judge scorecard, then deliver one authoritative answer. Do not copy any single member's answer — synthesize the strongest, best-supported result.
-Resolve the debate on the merits, not by majority vote. If the council was wrong or missed something, correct it.
+Read the full debate, the original answers, and any judge scorecard. Decide each disputed point ON THE MERITS — not by splitting the difference and not by favouring the more confident or more verbose model. If BOTH debaters were wrong or missed something, correct it yourself.
+Explicitly resolve the points the debaters left disputed: say which side was right and why, citing the evidence.
 ${QUALITY_RUBRIC}
 ${deepInstruction}
 
@@ -184,19 +204,19 @@ const COUNCIL_ROUNDS: CouncilRound[] = [
     id: "opening",
     title: "Opening",
     instruction:
-      "State which original answer is strongest and why, what it gets right, and the single most important point it misses. Take a clear position.",
+      "Give your own best answer to the user's question in a few sentences, then state the single most important point you expect the other model to get wrong or miss. Take a clear, specific position — no hedging.",
   },
   {
     id: "critique",
     title: "Critique",
     instruction:
-      "Read the opening notes. Challenge the weakest assumption, unsupported claim, or missing detail from another member by name. Concede any point where they were right.",
+      "Read the other model's opening. Address it directly by name: say exactly which claims you agree with, which you dispute, and why. Quote or paraphrase the specific claim you are challenging. Concede any point where they were right — do not defend a weak position out of pride.",
   },
   {
     id: "convergence",
     title: "Convergence",
     instruction:
-      "State what the council now agrees on, what remains genuinely disputed, and draft the key points the final answer must include. Be specific and actionable.",
+      "Now converge. State plainly: (1) what you and the other model now AGREE on, (2) which points remain genuinely DISPUTED and why neither side has conceded, and (3) the concrete facts/steps the final answer must contain. Be specific and actionable — this is the material the judge will rule on.",
   },
 ];
 
@@ -248,8 +268,7 @@ function shortResponses(responses: ResponseEntry[]): ResponseEntry[] {
   }));
 }
 
-function truncateResponses(responses: ResponseEntry[]): ResponseEntry[] {
-  const maxTotalChars = 500000;
+function truncateResponses(responses: ResponseEntry[], maxTotalChars = INITIAL_CONTEXT_BUDGET): ResponseEntry[] {
   const maxPerResponse = Math.max(1, Math.floor(maxTotalChars / Math.max(1, responses.length)));
   return responses.map((response) => ({
     ...response,
@@ -292,7 +311,7 @@ function toGeminiBody(messages: ChatMessage[]) {
   return {
     ...(systemParts.length > 0 ? { system_instruction: { parts: systemParts } } : {}),
     contents,
-    generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+    generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
   };
 }
 
@@ -310,7 +329,7 @@ async function readError(upstream: Response, fallback: string): Promise<string> 
   return raw;
 }
 
-async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatMessage[], stream: boolean) {
+async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatMessage[], stream: boolean, signal?: AbortSignal) {
   const provider = providerFor(modelId);
   const model = modelNameForProvider(modelId);
 
@@ -322,6 +341,7 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify(toGeminiBody(messages)),
+      ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`Gemini API is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
     });
@@ -349,6 +369,7 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
         ...(key ? { Authorization: `Bearer ${key}` } : {}),
       },
       body: JSON.stringify({ model, messages, stream }),
+      ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`${provider === "ollama-cloud" ? "Ollama API" : "Ollama"} is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
     });
@@ -360,7 +381,8 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
     return fetch(OPENCODE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: stream ? 4096 : 1200, stream }),
+      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: stream ? 8192 : 1200, stream }),
+      ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`OpenCode Zen is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
     });
@@ -375,16 +397,19 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
       model,
       messages,
       temperature: 0.3,
-      max_tokens: stream ? 4096 : 1200,
+      max_tokens: stream ? 8192 : 1200,
       stream,
     }),
+    ...(signal ? { signal } : {}),
   }).catch((err: unknown) => {
     throw new UpstreamError(`Groq API is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
   });
 }
 
 async function generateText(body: RequestBody, modelId: string, messages: ChatMessage[]): Promise<string> {
-  const upstream = await fetchUpstream(body, modelId, messages, false);
+  // Non-streaming calls (judges, council notes) must not hang forever.
+  const signal = AbortSignal.timeout(GENERATE_TEXT_TIMEOUT_MS);
+  const upstream = await fetchUpstream(body, modelId, messages, false, signal);
   if (upstream.status !== 200) {
     throw new UpstreamError(await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`), upstream.status);
   }
@@ -436,9 +461,8 @@ function createNdjsonResponse(handler: (send: SendEvent) => Promise<void>): Resp
 async function openStreamingUpstream(body: RequestBody, modelId: string, messages: ChatMessage[]) {
   const upstream = await fetchUpstream(body, modelId, messages, true);
   if (upstream.status !== 200) {
-    if (upstream.status === 413) {
-      throw new UpstreamError("Responses too large for consensus - try shorter conversations.", 413);
-    }
+    // Preserve the HTTP status so runSingle can detect context-overflow (413)
+    // and retry with a smaller context budget instead of surfacing an error.
     throw new UpstreamError(await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`), upstream.status);
   }
   if (!upstream.body) throw new UpstreamError("No upstream body", 502);
@@ -613,10 +637,124 @@ function formatJudgeBlock(judge: JudgeResult): string {
   return `${header}\n${lines.join("\n")}`;
 }
 
-// Runs the judge (non-streaming) over the panel answers. Non-fatal: returns null
-// if no judge model succeeds or the output cannot be parsed, so synthesis proceeds.
+// Combines independent judge scorecards into one aggregate result: scores and
+// overall ratings are averaged per candidate, and the winner is decided by
+// majority vote (ties broken by highest averaged overall). Two judges is
+// usually the sweet spot — enough to catch a single judge's bias without
+// doubling cost/latency for marginal extra reliability.
+function mergeJudgeResults(results: JudgeResult[]): JudgeResult {
+  if (results.length === 1) return results[0];
+
+  const byModel = new Map<
+    string,
+    { scores: Partial<Record<JudgeCriterion, number[]>>; overalls: number[]; rationales: string[] }
+  >();
+  for (const judge of results) {
+    for (const ranking of judge.rankings) {
+      const entry = byModel.get(ranking.model) ?? { scores: {}, overalls: [], rationales: [] };
+      for (const criterion of JUDGE_CRITERIA) {
+        const value = ranking.scores?.[criterion];
+        if (value !== undefined) {
+          (entry.scores[criterion] ??= []).push(value);
+        }
+      }
+      if (ranking.overall !== undefined) entry.overalls.push(ranking.overall);
+      if (ranking.rationale) entry.rationales.push(`${judge.model}: ${ranking.rationale}`);
+      byModel.set(ranking.model, entry);
+    }
+  }
+
+  const avg = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
+
+  const rankings: JudgeRanking[] = Array.from(byModel.entries()).map(([model, entry]) => {
+    const scores: Partial<Record<JudgeCriterion, number>> = {};
+    for (const criterion of JUDGE_CRITERIA) {
+      const values = entry.scores[criterion];
+      if (values && values.length > 0) scores[criterion] = Math.round(avg(values) * 10) / 10;
+    }
+    return {
+      model,
+      ...(Object.keys(scores).length > 0 ? { scores } : {}),
+      ...(entry.overalls.length > 0 ? { overall: Math.round(avg(entry.overalls) * 10) / 10 } : {}),
+      ...(entry.rationales.length > 0 ? { rationale: entry.rationales.join(" / ") } : {}),
+    };
+  });
+
+  const winnerVotes = new Map<string, number>();
+  for (const judge of results) {
+    if (judge.winner) winnerVotes.set(judge.winner, (winnerVotes.get(judge.winner) ?? 0) + 1);
+  }
+  let winner: string | undefined;
+  let bestVotes = 0;
+  for (const [model, votes] of winnerVotes) {
+    const overall = rankings.find((r) => r.model === model)?.overall ?? 0;
+    const bestOverall = rankings.find((r) => r.model === winner)?.overall ?? -1;
+    if (votes > bestVotes || (votes === bestVotes && overall > bestOverall)) {
+      winner = model;
+      bestVotes = votes;
+    }
+  }
+  if (!winner) {
+    winner = rankings.slice().sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0))[0]?.model;
+  }
+
+  const confidence: NonNullable<JudgeResult["confidence"]> =
+    winner !== undefined && bestVotes === results.length
+      ? "high"
+      : bestVotes > results.length / 2
+        ? "medium"
+        : "low";
+
+  return {
+    model: `${results.length} judges (${results.map((r) => r.model).join(", ")})`,
+    rankings,
+    ...(winner ? { winner } : {}),
+    confidence,
+  };
+}
+
+// Runs the judge(s) (non-streaming) over the panel answers. Non-fatal: returns
+// null if no judge model succeeds or the output cannot be parsed, so synthesis
+// proceeds anyway.
 async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeResult | null> {
   if (body.responses.length === 0) return null;
+  const messages = judgeMessages(body);
+
+  const explicitJudges = unique(body.judgeModels ?? []).slice(0, 3);
+  if (explicitJudges.length > 0) {
+    const settled = await Promise.allSettled(
+      explicitJudges.map(async (modelId) => {
+        const raw = await generateText(body, modelId, messages);
+        return parseJudge(raw, getModelAlias(modelId));
+      })
+    );
+    const parsedJudges = settled
+      .filter((result): result is PromiseFulfilledResult<JudgeResult | null> => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter((result): result is JudgeResult => Boolean(result));
+    if (parsedJudges.length === 0) {
+      // The user explicitly picked these judges — surface the failure instead
+      // of silently substituting a different model.
+      const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      const message = firstFailure
+        ? `Judge scoring failed: ${errorMessage(firstFailure.reason)}`
+        : "Judge scoring failed: selected judge model(s) returned an unreadable response.";
+      send({ type: "judge_error", message });
+      return null;
+    }
+    const merged = mergeJudgeResults(parsedJudges);
+    send({
+      type: "judge",
+      model: merged.model,
+      rankings: merged.rankings,
+      winner: merged.winner,
+      confidence: merged.confidence,
+    });
+    return merged;
+  }
+
+  // Legacy fallback path (no explicit judge panel supplied): try judges
+  // sequentially and stop at the first that returns a parseable scorecard.
   const judgeModels = unique([
     body.judgeModel,
     ...(body.judgeFallbackModels ?? []),
@@ -625,7 +763,6 @@ async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeR
   ]);
   if (judgeModels.length === 0) return null;
 
-  const messages = judgeMessages(body);
   for (const modelId of judgeModels) {
     try {
       const raw = await generateText(body, modelId, messages);
@@ -647,6 +784,7 @@ async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeR
   return null;
 }
 
+
 function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMessage[] {
   const solo = body.responses.length < 2;
   const block = formatResponseBlock(body.prompt, body.responses, body.webSearch);
@@ -657,24 +795,42 @@ function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMe
   ];
 }
 
+// Returns true when an error indicates the input was too large for the model.
+function isContextOverflow(err: UpstreamError): boolean {
+  return (
+    err.status === 413 ||
+    /context.?length|context.?window|token.?limit|too.?long|input.?too.?large|payload.?too/i.test(err.message)
+  );
+}
+
 async function runSingle(body: RequestBody): Promise<Response> {
   const models = unique([body.consensusModel, ...(body.fallbackModels ?? [])]);
   if (models.length === 0) throw new UpstreamError("Missing consensusModel", 400);
 
   return createNdjsonResponse(async (send) => {
-    const judge = await maybeRunJudge(send, body);
-    const messages = synthesisMessages(body, judge);
-
+    // Consensus uses a single expert model that is BOTH judge and synthesizer.
+    // If a model fails or the context is too large we silently try the next
+    // fallback, halving the context budget on each overflow.
+    let contextBudget = INITIAL_CONTEXT_BUDGET;
     let lastError: UpstreamError | null = null;
-    for (const model of models) {
+
+    for (const modelId of models) {
       try {
-        await streamTextEvents(send, body, model, messages);
+        const effectiveResponses = truncateResponses(body.responses, contextBudget);
+        const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
+        await streamTextEvents(send, body, modelId, messages);
         return;
       } catch (err) {
-        lastError =
+        const ue =
           err instanceof UpstreamError
             ? err
             : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
+        lastError = ue;
+        // Shrink context budget for the next attempt when the model rejected
+        // the request due to size, so the fallback has a better chance.
+        if (isContextOverflow(ue)) {
+          contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+        }
       }
     }
 
@@ -734,23 +890,57 @@ async function generateCouncilNote(
   return { round: round.id, roundTitle: round.title, modelId, alias, content };
 }
 
+// Strip "ModelName: " prefix from content to avoid redundant display
+// when the model name is shown as a separate header label.
+function stripModelPrefix(content: string, modelName: string): string {
+  const prefix = `${modelName}:`;
+  if (content.trimStart().startsWith(prefix)) {
+    return content.trimStart().slice(prefix.length).trimStart();
+  }
+  return content;
+}
+
+// Moderator tries the explicitly chosen judge models first, then silently
+// falls back through the full fallback chain and finally the debate
+// participants — so synthesis always completes even if the chosen judge is
+// temporarily unavailable.
 function moderatorModelIds(body: RequestBody, participants: string[]): string[] {
   if (body.moderatorModels?.length) {
-    return unique([...body.moderatorModels, ...participants]);
+    return unique([
+      ...body.moderatorModels,
+      ...(body.fallbackModels ?? []),
+      ...participants,
+    ]);
   }
   return unique([body.consensusModel, ...(body.fallbackModels ?? []), ...participants]);
 }
 
 async function runCouncil(body: RequestBody): Promise<Response> {
-  const candidates = unique(body.candidateModels ?? []);
-  const fallbacks = unique(body.fallbackModels ?? []);
-  if (candidates.length < 2) throw new UpstreamError("Model council needs at least two available models.", 400);
+  let candidates = unique(body.candidateModels ?? []);
+  let fallbacks = unique(body.fallbackModels ?? []);
+  // Start by combining all available models to maximize chances of success.
+  // If fewer than 2 candidate debaters, backfill from the fallback pool.
+  if (candidates.length < 2) {
+    fallbacks = fallbacks.filter((id) => !candidates.includes(id));
+    candidates = unique([...candidates, ...fallbacks]);
+  }
+  // If still only 1 model, use it twice (same model debates itself).
+  if (candidates.length === 1) {
+    candidates = [candidates[0], candidates[0]];
+  }
+  if (candidates.length === 0) throw new UpstreamError("No available models for council.", 400);
 
   return createNdjsonResponse(async (send) => {
     const fallbackQueue = fallbacks.filter((id) => !candidates.includes(id));
     const usedModels = new Set(candidates);
     const allNotes: CouncilNote[] = [];
-    const baseBlock = formatResponseBlock(body.prompt, body.responses, body.webSearch);
+    // Use a smaller context budget for the base block passed to debaters —
+    // they need the topic/context, not the full synthesizer-level transcript.
+    const baseBlock = formatResponseBlock(
+      body.prompt,
+      truncateResponses(body.responses, COUNCIL_RESPONSE_BUDGET),
+      body.webSearch
+    );
     let participants = [...candidates];
 
     for (const candidate of participants) {
@@ -771,7 +961,10 @@ async function runCouncil(body: RequestBody): Promise<Response> {
         const modelId = participants[i];
         const result = settled[i];
         if (result.status === "fulfilled") {
-          allNotes.push(result.value);
+          // Strip any "ModelName: " prefix from content to avoid redundant display.
+          const cleanContent = stripModelPrefix(result.value.content, result.value.alias);
+          const noteWithCleanContent = { ...result.value, content: cleanContent };
+          allNotes.push(noteWithCleanContent);
           nextParticipants.push(modelId);
           sendCouncilStatus(send, modelId, "done", round.id);
           send({
@@ -780,7 +973,7 @@ async function runCouncil(body: RequestBody): Promise<Response> {
             roundTitle: round.title,
             modelId,
             model: result.value.alias,
-            text: result.value.content,
+            text: cleanContent,
           });
           continue;
         }
@@ -796,16 +989,19 @@ async function runCouncil(body: RequestBody): Promise<Response> {
           sendCouncilStatus(send, fallback, "running", round.id, `Replacing ${getModelAlias(modelId)}`);
           try {
             replacementNote = await generateCouncilNote(body, fallback, round, baseBlock, allNotes);
-            allNotes.push(replacementNote);
+            // Strip any model name prefix from replacement note as well.
+            const cleanReplacement = { ...replacementNote, content: stripModelPrefix(replacementNote.content, getModelAlias(fallback)) };
+            allNotes.push(cleanReplacement);
             nextParticipants.push(fallback);
             sendCouncilStatus(send, fallback, "done", round.id);
+            const cleanContent = stripModelPrefix(replacementNote.content, replacementNote.alias);
             send({
               type: "council_note",
               round: round.id,
               roundTitle: round.title,
               modelId: fallback,
               model: replacementNote.alias,
-              text: replacementNote.content,
+              text: cleanContent,
             });
           } catch (err: unknown) {
             sendCouncilStatus(send, fallback, "failed", round.id, errorMessage(err));
@@ -814,8 +1010,9 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       }
 
       participants = nextParticipants;
-      if (participants.length < 2) {
-        throw new UpstreamError("Model council needs at least two working models.", 502);
+      // Allow synthesis even with 1 debater. If 0 participants remain, error out.
+      if (participants.length === 0) {
+        throw new UpstreamError("All debaters failed. Council could not proceed.", 502);
       }
     }
 
@@ -828,16 +1025,16 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       ...(judge ? ["", formatJudgeBlock(judge)] : []),
     ].join("\n");
 
-    send({ type: "round_start", round: "synthesis", title: "Final synthesis" });
+    send({ type: "round_start", round: "synthesis", title: "Judge's verdict" });
     let lastError: UpstreamError | null = null;
     for (const modelId of moderatorModelIds(body, participants)) {
       try {
-        sendCouncilStatus(send, modelId, "running", "synthesis", "Moderating final verdict");
+        sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
         await streamTextEvents(send, body, modelId, [
           { role: "system", content: councilSynthesisPrompt(qualityModeFor(body.qualityMode)) },
           { role: "user", content: councilBlock },
         ]);
-        sendCouncilStatus(send, modelId, "done", "synthesis", "Final verdict complete");
+        sendCouncilStatus(send, modelId, "done", "synthesis", "Verdict complete");
         return;
       } catch (err: unknown) {
         lastError = err instanceof UpstreamError ? err : new UpstreamError(errorMessage(err), 502);

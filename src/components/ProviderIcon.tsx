@@ -33,7 +33,6 @@ const API_PATHS: Partial<Record<ApiProviderKey, string>> = {};
 // Monogram fallback for brands without a SimpleIcons path.
 const LETTERS: Record<ProviderKey, string> = {
   openai:   "OA",
-  cogito:   "CG",
   deepseek: "DS",
   meta:     "M",
   nvidia:   "NV",

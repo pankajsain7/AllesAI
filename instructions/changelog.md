@@ -13,6 +13,16 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-07-06] Remove retired cogito-2.1:671b model references
+**Changed:** `src/lib/model-rules.ts`, `src/lib/models.ts`, `src/lib/providers.ts`, `src/components/ProviderIcon.tsx`, `src/components/ConsensusButton.tsx`
+**Why:** `ollama-cloud/cogito-2.1:671b` returned HTTP 410 (retired). All references must be removed so it no longer appears in priority lists or gets resolved.
+**Summary:** Removed `cogito` from `CONSENSUS_PRIORITY_MODEL_IDS`, `COUNCIL_PRIMARY_MODEL_IDS`, and `JUDGE_MODEL_IDS` in `model-rules.ts`; removed the cogito alias in `getModelAlias`; removed the `cogito` dynamic model generator block in `models.ts`; removed `"cogito"` from the `ProviderKey` union type, `PROVIDERS` record, and `PROVIDER_ORDER` in `providers.ts`; removed the `cogito: "CG"` monogram entry in `ProviderIcon.tsx`; removed the cogito-specific local-model name mapping in `ConsensusButton.tsx:findLocalModelName`. Verified with `tsc --noEmit`.
+
+## [2026-07-06] Fix stop buttons not working when prompt sent from hero page
+**Changed:** `src/lib/chat-client.ts`, `src/components/Composer.tsx`
+**Why:** Stop button showed but did nothing — `HeroComposer` discarded the `AbortController` returned by `sendPromptToAll`, so `Composer`'s `ctrlRef` was never set.
+**Summary:** Added a module-level `sessionAbortController` in `chat-client.ts` that `sendPromptToAll` always populates. Exported `abortAllStreams()` so any component can abort the current session. `Composer.onStop` now calls `abortAllStreams()` instead of a local ref, and `Composer.onSubmit` no longer saves to the removed `ctrlRef`. `HeroComposer` needs no change — `sendPromptToAll` saves the controller automatically.
+
 ## [2026-07-06] Auto-pick consensus synthesizer by context window, remove manual model selector
 **Changed:** `src/components/ConsensusButton.tsx`
 **Why:** User wanted the consensus model dropdown removed; instead automatically use the top 2 available large-context models (e.g. Gemma 4 + Gemini 2.5) as the synthesizer chain, judged via the existing LLM-as-judge stage, with 1 model being sufficient if only one is available.

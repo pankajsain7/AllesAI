@@ -7,10 +7,20 @@ import { streamDraftKey, useStreamDrafts } from "./stream-drafts";
 // Per-model abort controllers for mid-stream stopping
 const activeControllers = new Map<string, AbortController>();
 
+// Tracks the latest top-level session controller so the Composer stop button
+// works even when the prompt was sent from HeroComposer (which can't keep its
+// own ref because the component unmounts before streaming starts).
+let sessionAbortController: AbortController | null = null;
+
 export function abortModel(convId: string, modelId: string) {
   const key = `${convId}:${modelId}`;
   activeControllers.get(key)?.abort();
   activeControllers.delete(key);
+}
+
+export function abortAllStreams() {
+  sessionAbortController?.abort();
+  sessionAbortController = null;
 }
 
 type ChatRequestMessage = {
@@ -578,6 +588,7 @@ export function sendPromptToAll(
   prompt: string
 ): AbortController {
   const ctrl = new AbortController();
+  sessionAbortController = ctrl;
   const state = useChat.getState();
   const settings = useSettings.getState();
   const conv = state.conversations[convId];
