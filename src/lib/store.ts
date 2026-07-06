@@ -454,6 +454,7 @@ type ChatState = {
   conversations: Record<string, Conversation>;
   activeId: string | null;
   lastUsedModels: string[];
+  pruneOldData: () => void;
   newConversation: (selectedModels?: string[]) => string;
   setActive: (id: string) => void;
   deleteConversation: (id: string) => void;
@@ -629,7 +630,7 @@ function sanitizeConversation(conversation: Conversation): Conversation {
 
   const focusedModel = conversation.focusedModel ? normalizeModelId(conversation.focusedModel) : null;
 
-  return {
+  return pruneConversationPayload({
     ...conversation,
     chatMode: conversation.chatMode === "auto" || conversation.chatMode === "single" ? conversation.chatMode : "multi",
     selectedModels: nextSelectedModels,
@@ -639,7 +640,7 @@ function sanitizeConversation(conversation: Conversation): Conversation {
     sharedResults:
       conversation.sharedResults ??
       legacyConsensusToSharedResults(conversation.consensusMessages),
-  };
+  });
 }
 
 function removeSelectedRoutes(
@@ -672,12 +673,75 @@ function removeSelectedRoutes(
   };
 }
 
+const MAX_STORED_CONVERSATIONS = 25;
+const MAX_MESSAGES_PER_THREAD = 120;
+const MAX_SHARED_RESULTS_PER_CONVERSATION = 24;
+const MAX_CONSENSUS_MESSAGES_PER_CONVERSATION = 24;
+
+function pruneMessages(messages: Message[]): Message[] {
+  if (messages.length <= MAX_MESSAGES_PER_THREAD) return messages;
+  return messages.slice(-MAX_MESSAGES_PER_THREAD);
+}
+
+function pruneConversationPayload(conversation: Conversation): Conversation {
+  const threads = Object.fromEntries(
+    Object.entries(conversation.threads).map(([modelId, thread]) => [
+      modelId,
+      {
+        ...thread,
+        messages: pruneMessages(thread.messages),
+      },
+    ])
+  );
+
+  return {
+    ...conversation,
+    threads,
+    consensusMessages: (conversation.consensusMessages ?? []).slice(
+      -MAX_CONSENSUS_MESSAGES_PER_CONVERSATION
+    ),
+    sharedResults: (conversation.sharedResults ?? []).slice(-MAX_SHARED_RESULTS_PER_CONVERSATION),
+  };
+}
+
+function pruneConversationsByRecency(
+  conversations: Record<string, Conversation>,
+  maxCount = MAX_STORED_CONVERSATIONS
+): Record<string, Conversation> {
+  const entries = Object.entries(conversations).sort(([, a], [, b]) => b.updatedAt - a.updatedAt);
+  if (entries.length <= maxCount) return conversations;
+  return Object.fromEntries(entries.slice(0, maxCount));
+}
+
+function pickActiveConversationId(
+  preferredId: string | null,
+  conversations: Record<string, Conversation>
+): string | null {
+  if (preferredId && conversations[preferredId]) return preferredId;
+  return Object.keys(conversations)[0] ?? null;
+}
+
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => ({
       conversations: {},
       activeId: null,
       lastUsedModels: DEFAULT_SELECTED_MODELS,
+      pruneOldData: () =>
+        set((s) => {
+          const prunedConversations = pruneConversationsByRecency(
+            Object.fromEntries(
+              Object.entries(s.conversations).map(([id, conversation]) => [
+                id,
+                pruneConversationPayload(conversation),
+              ])
+            )
+          );
+          return {
+            conversations: prunedConversations,
+            activeId: pickActiveConversationId(s.activeId, prunedConversations),
+          };
+        }),
       newConversation: (selectedModels) => {
         // If the active conversation is still blank (no messages), reuse it
         const { conversations, activeId, lastUsedModels } = get();
@@ -704,7 +768,7 @@ export const useChat = create<ChatState>()(
           inheritedMode
         );
         set((s) => ({
-          conversations: { ...s.conversations, [c.id]: c },
+          conversations: pruneConversationsByRecency({ ...s.conversations, [c.id]: c }),
           activeId: c.id,
         }));
         return c.id;
@@ -729,9 +793,11 @@ export const useChat = create<ChatState>()(
               sanitizeConversation(conversation),
             ])
           );
+          const conversations = pruneConversationsByRecency({ ...s.conversations, ...imported });
+          const preferredActiveId = Object.keys(imported)[0] ?? s.activeId;
           return {
-            conversations: { ...s.conversations, ...imported },
-            activeId: Object.keys(imported)[0] ?? s.activeId,
+            conversations,
+            activeId: pickActiveConversationId(preferredActiveId, conversations),
           };
         }),
       renameConversation: (id, title) =>
@@ -948,10 +1014,10 @@ export const useChat = create<ChatState>()(
             const t = threads[m] ?? { modelId: m, messages: [] };
             threads[m] = {
               ...t,
-              messages: [
+              messages: pruneMessages([
                 ...t.messages,
                 { id: msgId, role: "user", content, createdAt: Date.now() },
-              ],
+              ]),
             };
           }
           const title =
@@ -973,7 +1039,7 @@ export const useChat = create<ChatState>()(
           const t = c.threads[modelId] ?? { modelId, messages: [] };
           const newT: ModelThread = {
             ...t,
-            messages: [
+            messages: pruneMessages([
               ...t.messages,
               {
                 id: msgId,
@@ -984,7 +1050,7 @@ export const useChat = create<ChatState>()(
                 status,
                 createdAt: Date.now(),
               },
-            ],
+            ]),
           };
           return {
             conversations: {
@@ -1053,7 +1119,7 @@ export const useChat = create<ChatState>()(
               ...s.conversations,
               [convId]: {
                 ...c,
-                threads: { ...c.threads, [modelId]: { ...t, messages } },
+                threads: { ...c.threads, [modelId]: { ...t, messages: pruneMessages(messages) } },
                 updatedAt: Date.now(),
               },
             },
@@ -1077,7 +1143,9 @@ export const useChat = create<ChatState>()(
               ...s.conversations,
               [convId]: {
                 ...c,
-                consensusMessages: [...(c.consensusMessages ?? []), note],
+                consensusMessages: [...(c.consensusMessages ?? []), note].slice(
+                  -MAX_CONSENSUS_MESSAGES_PER_CONVERSATION
+                ),
                 updatedAt: Date.now(),
               },
             },
@@ -1101,7 +1169,9 @@ export const useChat = create<ChatState>()(
               ...s.conversations,
               [convId]: {
                 ...c,
-                sharedResults: [...(c.sharedResults ?? []), note],
+                sharedResults: [...(c.sharedResults ?? []), note].slice(
+                  -MAX_SHARED_RESULTS_PER_CONVERSATION
+                ),
                 updatedAt: now,
               },
             },
@@ -1243,12 +1313,13 @@ export const useChat = create<ChatState>()(
       version: 21,
       migrate: (persistedState) => {
         const state = persistedState as Partial<ChatState> | undefined;
-        const conversations = Object.fromEntries(
+        const sanitizedConversations = Object.fromEntries(
           Object.entries(state?.conversations ?? {}).map(([id, conversation]) => [
             id,
             sanitizeConversation(conversation as Conversation),
           ])
         );
+        const conversations = pruneConversationsByRecency(sanitizedConversations);
 
         const lastUsedModels = dedupeModelIdsByFamily(
           Array.from(
@@ -1264,10 +1335,7 @@ export const useChat = create<ChatState>()(
           ...state,
           conversations,
           lastUsedModels: lastUsedModels.length > 0 ? lastUsedModels : DEFAULT_SELECTED_MODELS,
-          activeId:
-            state?.activeId && conversations[state.activeId]
-              ? state.activeId
-              : Object.keys(conversations)[0] ?? null,
+          activeId: pickActiveConversationId(state?.activeId ?? null, conversations),
         } as ChatState;
       },
       onRehydrateStorage: () => (state) => {
@@ -1279,6 +1347,7 @@ export const useChat = create<ChatState>()(
             sanitizeConversation(conv),
           ])
         );
+        const conversations = pruneConversationsByRecency(sanitizedConvs);
         const sanitizedLast = dedupeModelIdsByFamily(
           Array.from(
             new Set(
@@ -1289,7 +1358,8 @@ export const useChat = create<ChatState>()(
           )
         );
         useChat.setState({
-          conversations: sanitizedConvs,
+          conversations,
+          activeId: pickActiveConversationId(state.activeId, conversations),
           lastUsedModels: sanitizedLast.length > 0 ? sanitizedLast : DEFAULT_SELECTED_MODELS,
         });
       },

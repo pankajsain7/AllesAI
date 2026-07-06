@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useChat } from "@/lib/store";
 import {
   MessageSquarePlus,
@@ -29,8 +29,13 @@ export function Sidebar() {
   const setActive = useChat((s) => s.setActive);
   const newConversation = useChat((s) => s.newConversation);
   const deleteConversation = useChat((s) => s.deleteConversation);
+  const pruneOldData = useChat((s) => s.pruneOldData);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    pruneOldData();
+  }, [pruneOldData]);
 
   const list = useMemo(() => {
     const arr = Object.values(conversations).sort((a, b) => b.updatedAt - a.updatedAt);
