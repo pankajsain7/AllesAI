@@ -7,6 +7,8 @@ import {
   OPENCODE_KNOWN_MODELS,
   PRESET_CLOUD_OLLAMA_MODELS,
   isFreeCloudOllamaModel,
+  toCloudOllamaModelId,
+  toOpenCodeModelId,
   type CustomProvider,
 } from "@/lib/models";
 import { uid } from "@/lib/utils";
@@ -91,6 +93,7 @@ function ModelBrowsePanel({
   loading,
   error,
   isFree,
+  excludeIds,
 }: {
   models: BrowsableModel[];
   selected: string[];
@@ -98,10 +101,23 @@ function ModelBrowsePanel({
   loading: boolean;
   error: string | null;
   isFree?: (id: string) => boolean;
+  excludeIds?: string[];
 }) {
   const [filter, setFilter] = useState("");
   const [hidePaid, setHidePaid] = useState(Boolean(isFree));
+  const excluded = new Set(excludeIds ?? []);
+
+  const setHidePaidAndDisablePaid = (nextHidePaid: boolean) => {
+    setHidePaid(nextHidePaid);
+    if (!nextHidePaid || !isFree) return;
+
+    for (const modelId of selected) {
+      if (!isFree(modelId)) onToggle(modelId);
+    }
+  };
+
   const filtered = models
+    .filter((m) => !excluded.has(m.id))
     .filter((m) => m.id.toLowerCase().includes(filter.trim().toLowerCase()))
     .filter((m) => !(isFree && hidePaid) || isFree(m.id))
     .sort((a, b) => {
@@ -131,7 +147,7 @@ function ModelBrowsePanel({
           <input
             type="checkbox"
             checked={hidePaid}
-            onChange={(e) => setHidePaid(e.target.checked)}
+            onChange={(e) => setHidePaidAndDisablePaid(e.target.checked)}
             className="accent-[var(--accent)]"
           />
           Hide paid models
@@ -240,6 +256,7 @@ export function SettingsDialog() {
   const cloudOllamaBrowser = useModelBrowser();
   const s = useSettings();
   const removeApiProviderModels = useChat((state) => state.removeApiProviderModels);
+  const removeModelId = useChat((state) => state.removeModelId);
 
   const groqDefaultModels = MODEL_CATALOG.filter((m) => m.apiProvider === "groq").map((m) => ({
     label: m.shortLabel ?? m.label,
@@ -257,6 +274,14 @@ export function SettingsDialog() {
     label: m.shortLabel ?? m.label,
     free: m.free ?? isFreeCloudOllamaModel(m.name),
   }));
+  const groqDefaultModelIds = MODEL_CATALOG
+    .filter((m) => m.apiProvider === "groq")
+    .map((m) => m.id);
+  const geminiDefaultModelIds = MODEL_CATALOG
+    .filter((m) => m.apiProvider === "gemini")
+    .map((m) => m.id);
+  const opencodeDefaultModelIds = Object.keys(OPENCODE_KNOWN_MODELS);
+  const ollamaCloudDefaultModelIds = PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name);
 
   const browseOpencodeModels = () => {
     const params = new URLSearchParams();
@@ -267,6 +292,7 @@ export function SettingsDialog() {
   const toggleOpencodeModel = (id: string) => {
     const has = s.opencodeModels.includes(id);
     s.setOpencodeModels(has ? s.opencodeModels.filter((m) => m !== id) : [...s.opencodeModels, id]);
+    if (has) removeModelId(toOpenCodeModelId(id));
   };
 
   const browseGroqModels = () => {
@@ -278,6 +304,7 @@ export function SettingsDialog() {
   const toggleGroqModel = (id: string) => {
     const has = s.groqExtraModels.includes(id);
     s.setGroqExtraModels(has ? s.groqExtraModels.filter((m) => m !== id) : [...s.groqExtraModels, id]);
+    if (has) removeModelId(`groq/${id}`);
   };
 
   const browseGeminiModels = () => {
@@ -289,6 +316,7 @@ export function SettingsDialog() {
   const toggleGeminiModel = (id: string) => {
     const has = s.geminiExtraModels.includes(id);
     s.setGeminiExtraModels(has ? s.geminiExtraModels.filter((m) => m !== id) : [...s.geminiExtraModels, id]);
+    if (has) removeModelId(id);
   };
 
   const browseCloudOllamaModels = () => {
@@ -304,6 +332,7 @@ export function SettingsDialog() {
   const toggleCloudOllamaModel = (id: string) => {
     const has = s.ollamaCloudModels.includes(id);
     s.setOllamaCloudModels(has ? s.ollamaCloudModels.filter((m) => m !== id) : [...s.ollamaCloudModels, id]);
+    if (has) removeModelId(toCloudOllamaModelId(id));
   };
 
   const refreshLocalModels = async () => {
@@ -458,6 +487,7 @@ export function SettingsDialog() {
                             onToggle={toggleGroqModel}
                             loading={groqBrowser.loading}
                             error={groqBrowser.error}
+                            excludeIds={groqDefaultModelIds}
                           />
                         )}
                       </>
@@ -514,6 +544,7 @@ export function SettingsDialog() {
                             onToggle={toggleGeminiModel}
                             loading={geminiBrowser.loading}
                             error={geminiBrowser.error}
+                            excludeIds={geminiDefaultModelIds}
                           />
                         )}
                       </>
@@ -571,6 +602,7 @@ export function SettingsDialog() {
                             loading={opencodeBrowser.loading}
                             error={opencodeBrowser.error}
                             isFree={(id) => OPENCODE_KNOWN_MODELS[id]?.free ?? false}
+                            excludeIds={opencodeDefaultModelIds}
                           />
                         )}
                       </>
@@ -641,6 +673,7 @@ export function SettingsDialog() {
                             loading={cloudOllamaBrowser.loading}
                             error={cloudOllamaBrowser.error}
                             isFree={isFreeCloudOllamaModel}
+                            excludeIds={ollamaCloudDefaultModelIds}
                           />
                         )}
                       </>

@@ -9,6 +9,7 @@ import {
   MODEL_CATALOG,
   dedupeModelIdsByFamily,
   getCloudOllamaModelInfos,
+  getCloudOllamaModelNames,
   getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
@@ -339,6 +340,25 @@ export function filterEnabledModelIds(
   });
 }
 
+// Like filterEnabledModelIds, but also drops model IDs whose family is no
+// longer among the currently-available routes (e.g. stale cloud-Ollama models
+// removed from settings) and collapses duplicate routes of the same family.
+// This keeps the header count and the rendered columns in sync with the model
+// picker, which only counts available families.
+export function filterSelectableModelIds(
+  modelIds: string[],
+  settings: SettingsState = useSettings.getState()
+): string[] {
+  const availableFamilies = new Set(getEnabledRoutes(settings).map((route) => route.familyId));
+  const enabled = modelIds.filter((modelId) => {
+    const model = getModel(modelId);
+    if (!model) return false;
+    if (!isApiProviderEnabled(model.apiProvider, settings)) return false;
+    return availableFamilies.has(model.familyId);
+  });
+  return dedupeModelIdsByFamily(enabled);
+}
+
 export function getEnabledRoutes(settings: SettingsState): ModelInfo[] {
   return [
     ...MODEL_CATALOG,
@@ -346,7 +366,9 @@ export function getEnabledRoutes(settings: SettingsState): ModelInfo[] {
     ...(settings.groqEnabled ? getGroqExtraModelInfos(settings.groqExtraModels) : []),
     ...(settings.geminiEnabled ? getGeminiExtraModelInfos(settings.geminiExtraModels) : []),
     ...getCustomProviderModelInfos(settings.customProviders),
-    ...(settings.cloudOllamaEnabled ? getCloudOllamaModelInfos(settings.ollamaCloudModels) : []),
+    ...(settings.cloudOllamaEnabled
+      ? getCloudOllamaModelInfos(getCloudOllamaModelNames(settings.ollamaCloudModels))
+      : []),
     ...(settings.localEnabled
       ? settings.availableLocalModels
           .filter((model) => !isRemovedModelName(model.name))
@@ -423,6 +445,7 @@ type ChatState = {
   removeOllamaModels: () => void;
   removeLocalOllamaModels: () => void;
   removeCloudOllamaModels: () => void;
+  removeModelId: (modelId: string) => void;
   toggleModelEnabled: (convId: string, modelId: string) => void;
   setFocusedModel: (id: string, modelId: string | null) => void;
   addUserMessage: (id: string, content: string, modelIds?: string[]) => string;
@@ -501,10 +524,14 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "deepseek-v4-flash": "",
   "ollama-cloud/gemini-3-flash-preview": "",
   "ollama-cloud/deepseek-v4-pro": "",
-  "ollama-cloud/qwen3.5:397b": "",
-  "ollama-cloud/qwen3-vl:235b-cloud": "",
-  "ollama-cloud/glm-4.6:cloud": "",
-  "ollama-cloud/minimax-m2.5:cloud": "",
+  // Legacy "-cloud" suffixed tags -> current suffix-less names (same pattern
+  // as gpt-oss/gemma4 above). These were wrongly blacklisted entirely, which
+  // silently dropped the model every time a user tried to select it.
+  "ollama-cloud/qwen3-vl:235b-cloud": "ollama-cloud/qwen3-vl:235b",
+  "ollama-cloud/glm-4.6:cloud": "ollama-cloud/glm-4.6",
+  "ollama-cloud/minimax-m2.5:cloud": "ollama-cloud/minimax-m2.5",
+  // Default hosted Qwen family moved from qwen3.5 to qwen3-coder.
+  "ollama-cloud/qwen3.5:397b": "ollama-cloud/qwen3-coder:480b",
   // Old Gemini IDs -> 2.5 flash lite
   "gemini-2.0-flash": "gemini-2.5-flash-lite",
   "gemini-2.5-flash": "gemini-2.5-flash-lite",
@@ -849,6 +876,13 @@ export const useChat = create<ChatState>()(
         set((s) => removeSelectedRoutes(s, isOllamaModelId)),
       removeCloudOllamaModels: () =>
         set((s) => removeSelectedRoutes(s, isCloudOllamaModelId)),
+      // Unchecking a single model in Settings' "browse & import" panels only
+      // removed it from the availability list — it stayed selected (and kept
+      // showing as "on") in any conversation that had already picked it. This
+      // purges it from every conversation's selection the same way disabling
+      // a whole provider already does.
+      removeModelId: (modelId) =>
+        set((s) => removeSelectedRoutes(s, (id) => id === modelId)),
       toggleModelEnabled: (convId, modelId) =>
         set((s) => {
           const c = s.conversations[convId];

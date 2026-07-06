@@ -19,7 +19,6 @@
 ## 4. Chat Interface Improvements
 - Improve message bubble styling and spacing
 - Better message grouping and threading
-- Add timestamps or message ordering indicators
 - Smooth scroll behavior on new messages
 - Improve empty states and loading indicators
 

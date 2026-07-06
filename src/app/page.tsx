@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
-  filterEnabledModelIds,
+  filterSelectableModelIds,
   useChat,
   useSettings,
-  type ProviderToggleSettings,
 } from "@/lib/store";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelColumn } from "@/components/ModelColumn";
@@ -44,6 +43,14 @@ export default function Home() {
   const ollamaApiKey = useSettings((s) => s.ollamaApiKey);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
+  // Subscribed so the visible model list re-computes when the set of
+  // available routes changes (added/removed cloud, local or custom models).
+  const ollamaCloudModels = useSettings((s) => s.ollamaCloudModels);
+  const availableLocalModels = useSettings((s) => s.availableLocalModels);
+  const opencodeModels = useSettings((s) => s.opencodeModels);
+  const groqExtraModels = useSettings((s) => s.groqExtraModels);
+  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
+  const customProviders = useSettings((s) => s.customProviders);
 
   const handleDragStart = (id: string) => {
     dragSrc.current = id;
@@ -79,15 +86,21 @@ export default function Home() {
   if (!mounted) return null;
 
   const conv = activeId ? conversations[activeId] : null;
-  const enabledSettings: ProviderToggleSettings = {
-    groqEnabled,
-    geminiEnabled,
-    opencodeEnabled,
-    cloudOllamaEnabled,
-    localEnabled,
-  };
+  // Reference the provider settings so this render is subscribed to them;
+  // filterSelectableModelIds reads the full settings state internally.
+  void groqEnabled;
+  void geminiEnabled;
+  void opencodeEnabled;
+  void cloudOllamaEnabled;
+  void localEnabled;
+  void ollamaCloudModels;
+  void availableLocalModels;
+  void opencodeModels;
+  void groqExtraModels;
+  void geminiExtraModels;
+  void customProviders;
   const visibleSelectedModels = conv
-    ? filterEnabledModelIds(conv.selectedModels, enabledSettings)
+    ? filterSelectableModelIds(conv.selectedModels)
     : [];
   const visibleFocusedModel =
     conv?.focusedModel && visibleSelectedModels.includes(conv.focusedModel)

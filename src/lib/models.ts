@@ -324,16 +324,30 @@ export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
 // same family list as other routes when they refer to the same model.
 export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
   {
-    name: "qwen3.5:397b",
-    label: "Qwen3.5 397B",
-    shortLabel: "Qwen3.5 397B",
+    name: "qwen3-coder:480b",
+    label: "Qwen3 Coder 480B",
+    shortLabel: "Qwen3 Coder",
     provider: "qwen",
-    familyId: "qwen3-5-397b",
-    paramSize: "397B",
-    bestFor: "General reasoning, coding, agents",
+    familyId: "qwen3-coder-480b",
+    free: false,
+    accessLabel: "Ollama Pro/Max",
+    accessHint: "This hosted model requires an ollama.com paid subscription tier.",
+    paramSize: "480B",
+    bestFor: "Advanced coding and agentic workflows",
     context: 256000,
-    category: "Reasoning",
+    category: "Coding",
     thinking: true,
+  },
+  {
+    name: "glm-4.7",
+    label: "GLM 4.7",
+    shortLabel: "GLM 4.7",
+    provider: "zhipu",
+    familyId: "glm-4-7",
+    paramSize: "4.7",
+    bestFor: "General chat and coding",
+    context: 131000,
+    category: "General",
   },
   {
     name: "gemma4:31b",
@@ -440,6 +454,16 @@ export function getCloudOllamaModelInfo(modelName: string): ModelInfo {
 
 export function getCloudOllamaModelInfos(modelNames: string[]): ModelInfo[] {
   return Array.from(new Set(modelNames)).map(getCloudOllamaModelInfo);
+}
+
+// Settings shows PRESET_CLOUD_OLLAMA_MODELS as "Default models" for Ollama
+// Cloud, implying they're available as soon as the provider is enabled. But
+// every picker/composer only turned `ollamaCloudModels` (the user's manually
+// browsed-and-imported list) into routes, so those presets never actually
+// showed up unless a user separately found and re-imported the exact same
+// model name. This merges the presets in so "default" actually means default.
+export function getCloudOllamaModelNames(imported: string[]): string[] {
+  return Array.from(new Set([...PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name), ...imported]));
 }
 
 export function getLocalOllamaModelInfo(modelName: string): ModelInfo {
@@ -588,6 +612,10 @@ const CLOUD_OLLAMA_ACCESS_HINT =
 export function isFreeCloudOllamaModel(modelName: string): boolean {
   const name = stripLatestTag(modelName).toLowerCase();
   if (name.startsWith("gemma")) return true;
+  // qwen3-coder is currently a paid subscription tier model on Ollama Cloud.
+  if (name.startsWith("qwen3-coder")) return false;
+  // qwen3.5 is currently a paid subscription tier model on Ollama Cloud.
+  if (name.startsWith("qwen3.5")) return false;
   if (name.startsWith("qwen")) return true;
   if (name.startsWith("ministral")) return true;
   if (name.startsWith("minimax-m2.5") || name.startsWith("minimax-m3")) return true;
@@ -674,7 +702,18 @@ function inferOllamaModel(modelName: string): Omit<ModelInfo, "id" | "apiProvide
   }
 
   if (lower.startsWith("qwen3-coder")) {
-    const paramSize = size ?? "Unknown";
+    const paramSize = size;
+    if (!paramSize) {
+      return {
+        label: "Qwen3 Coder",
+        shortLabel: "Qwen3 Coder",
+        provider: "qwen",
+        familyId: "qwen3-coder",
+        context: 0,
+        category: "",
+        bestFor: "Coding tasks",
+      };
+    }
     return {
       label: `Qwen3 Coder ${paramSize}`,
       shortLabel: "Qwen3 Coder",

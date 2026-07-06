@@ -6,6 +6,7 @@ import {
   buildModelFamilies,
   getCustomProviderModelInfos,
   getCloudOllamaModelInfos,
+  getCloudOllamaModelNames,
   getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
@@ -73,7 +74,10 @@ export function ModelPicker({ convId }: { convId: string }) {
   );
 
   const hostedOllamaRoutes = useMemo(
-    () => (cloudOllamaEnabled ? getCloudOllamaModelInfos(ollamaCloudModels) : []),
+    () =>
+      cloudOllamaEnabled
+        ? getCloudOllamaModelInfos(getCloudOllamaModelNames(ollamaCloudModels))
+        : [],
     [cloudOllamaEnabled, ollamaCloudModels]
   );
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { filterEnabledModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId } from "./store";
+import { filterSelectableModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId } from "./store";
 import { isCloudOllamaModelId, isOllamaModelId, isOpenCodeModelId, type ModelInfo } from "./models";
 import { streamDraftKey, useStreamDrafts } from "./stream-drafts";
 
@@ -100,6 +100,9 @@ function formatChatError(raw: string, status: number, statusText: string, modelI
   const parsed = extractApiError(raw, statusText || "Request failed");
 
   if (isSubscriptionError(parsed)) {
+    if (modelId === "ollama-cloud/qwen3-coder:480b") {
+      return "Qwen3 Coder 480B on Ollama requires a paid subscription tier. Choose a free alternative (for example Qwen3 32B on Groq or North Mini Code on OpenCode).";
+    }
     const provider = isCloudOllamaModelId(modelId) || isOllamaModelId(modelId)
       ? "Ollama"
       : "The provider";
@@ -580,7 +583,7 @@ export function sendPromptToAll(
   const disabled = new Set(conv.disabledModels ?? []);
   const candidateTargets = (conv.focusedModel ? [conv.focusedModel] : conv.selectedModels)
     .filter((id) => !disabled.has(id));
-  const targets = filterEnabledModelIds(candidateTargets, settings);
+  const targets = filterSelectableModelIds(candidateTargets, settings);
   state.addUserMessage(convId, prompt, targets);
   streamTargets(convId, prompt, targets, ctrl, settings);
   return ctrl;
@@ -592,7 +595,7 @@ async function runAutoPrompt(convId: string, prompt: string, ctrl: AbortControll
   const settings = useSettings.getState();
   const conv = useChat.getState().conversations[convId];
   if (!conv) return;
-  const enabledSelected = filterEnabledModelIds(conv.selectedModels, settings);
+  const enabledSelected = filterSelectableModelIds(conv.selectedModels, settings);
   const hasAnswers = enabledSelected.some((id) =>
     (conv.threads[id]?.messages ?? []).some((m) => m.role === "assistant")
   );
@@ -649,26 +652,11 @@ function streamTargets(
 ) {
   const state = useChat.getState();
   const assistantMsgIds = new Map<string, string>();
-  const modelControllers = new Map<string, AbortController>();
   for (const modelId of targets) {
     const existing = existingMsgIds?.get(modelId);
     const msgId = existing ?? state.startAssistant(convId, modelId, settings.webSearch ? "searching" : "thinking");
     if (existing && settings.webSearch) state.setAssistantStatus(convId, modelId, msgId, "searching");
-    const modelCtrl = new AbortController();
-    const streamKey = `${convId}:${modelId}`;
     assistantMsgIds.set(modelId, msgId);
-    modelControllers.set(modelId, modelCtrl);
-    activeControllers.set(streamKey, modelCtrl);
-    ctrl.signal.addEventListener("abort", () => modelCtrl.abort());
-    modelCtrl.signal.addEventListener("abort", () => {
-      const message = useChat
-        .getState()
-        .conversations[convId]?.threads[modelId]?.messages.find((m) => m.id === msgId);
-      if (message?.pending) {
-        useChat.getState().finishAssistant(convId, modelId, msgId);
-      }
-      if (activeControllers.get(streamKey) === modelCtrl) activeControllers.delete(streamKey);
-    });
   }
 
   void (async () => {
@@ -688,16 +676,219 @@ function streamTargets(
     }
 
     if (ctrl.signal.aborted) return;
+
+    // Multiple models: send one multiplexed request so all models stream over a
+    // single connection (avoids the browser's ~6 concurrent-connection limit,
+    // which otherwise makes large runs complete in slow sequential waves).
+    if (targets.length > 1) {
+      await streamMultiplexed(convId, targets, assistantMsgIds, ctrl, settings, webContext);
+      return;
+    }
+
+    // Single model (also used by auto/single modes): keep the direct per-model
+    // stream. streamModel registers its own abort controller for stop support.
     for (const modelId of targets) {
-      const modelCtrl = modelControllers.get(modelId);
-      if (modelCtrl?.signal.aborted) continue;
       void streamModel({
         convId,
         modelId,
         assistantMsgId: assistantMsgIds.get(modelId),
-        abortSignal: modelCtrl?.signal ?? ctrl.signal,
+        abortSignal: ctrl.signal,
         webContext,
       });
     }
   })();
+}
+
+type MultiplexModelState = {
+  modelId: string;
+  apiModel: string;
+  msgId: string;
+  draft: ReturnType<typeof createDraftWriter>;
+  ctrl: AbortController;
+  usage?: { promptTokens?: number; completionTokens?: number; costUsd?: number };
+  grounding?: Message["grounding"];
+  firstTokenAt: number | null;
+  startedAt: number;
+  done: boolean;
+};
+
+// Streams every target model through the /api/chat/multi fan-out endpoint over a
+// single HTTP connection, routing each tagged event back to the right column.
+async function streamMultiplexed(
+  convId: string,
+  targets: string[],
+  assistantMsgIds: Map<string, string>,
+  ctrl: AbortController,
+  settings: ReturnType<typeof useSettings.getState>,
+  webContext?: WebContext
+) {
+  const chatState = useChat.getState();
+  const conv = chatState.conversations[convId];
+  if (!conv) return;
+
+  const perModel = new Map<string, MultiplexModelState>();
+  const items: Array<{ id: string; model: string; messages: ChatRequestMessage[] }> = [];
+
+  for (const modelId of targets) {
+    const thread = conv.threads[modelId];
+    const msgId = assistantMsgIds.get(modelId);
+    if (!thread || !msgId) continue;
+    chatState.setAssistantStatus(convId, modelId, msgId, "thinking");
+    const draftKey = streamDraftKey(convId, modelId, msgId);
+    useStreamDrafts.getState().clearDraft(draftKey);
+    const history = thread.messages.filter((m) => !(m.role === "assistant" && m.pending));
+    const apiModel = normalizeModelId(modelId) ?? modelId;
+    const modelCtrl = new AbortController();
+    activeControllers.set(`${convId}:${modelId}`, modelCtrl);
+    perModel.set(modelId, {
+      modelId,
+      apiModel,
+      msgId,
+      draft: createDraftWriter(draftKey),
+      ctrl: modelCtrl,
+      firstTokenAt: null,
+      startedAt: performance.now(),
+      grounding: webContext?.grounding,
+      done: false,
+    });
+    items.push({
+      id: modelId,
+      model: apiModel,
+      messages: toApiMessages(history, settings.systemPrompt, webContext),
+    });
+  }
+
+  if (items.length === 0) return;
+
+  const finalize = (pm: MultiplexModelState, patch: Partial<Message>) => {
+    if (pm.done) return;
+    pm.done = true;
+    pm.draft.flush();
+    useChat.getState().finishAssistant(convId, pm.modelId, pm.msgId, {
+      content: pm.draft.getContent(),
+      usage: pm.usage,
+      grounding: pm.grounding,
+      ...patch,
+    });
+    pm.draft.clear();
+    const streamKey = `${convId}:${pm.modelId}`;
+    if (activeControllers.get(streamKey) === pm.ctrl) activeControllers.delete(streamKey);
+  };
+
+  // The batch shares one network request. Stopping a single column finalizes
+  // just that model locally; once every column is stopped we abort the request.
+  const requestCtrl = new AbortController();
+  ctrl.signal.addEventListener("abort", () => requestCtrl.abort());
+  for (const pm of perModel.values()) {
+    pm.ctrl.signal.addEventListener("abort", () => {
+      finalize(pm, {});
+      if ([...perModel.values()].every((p) => p.done)) requestCtrl.abort();
+    });
+  }
+
+  try {
+    const res = await fetch("/api/chat/multi", {
+      method: "POST",
+      signal: requestCtrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items,
+        apiKey: settings.apiKey || undefined,
+        geminiApiKey: settings.geminiApiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
+        ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+        ollamaApiKey: settings.ollamaApiKey || undefined,
+        ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
+        customProviders: settings.customProviders.length ? settings.customProviders : undefined,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      const raw = await res.text().catch(() => res.statusText);
+      for (const pm of perModel.values()) {
+        finalize(pm, {
+          error: formatChatError(raw, res.status, res.statusText, pm.apiModel),
+          pending: false,
+        });
+      }
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        let evt: Record<string, unknown>;
+        try {
+          evt = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const pm = perModel.get(String(evt.id));
+        if (!pm || pm.done || pm.ctrl.signal.aborted) continue;
+
+        switch (evt.type) {
+          case "delta": {
+            if (pm.firstTokenAt === null) pm.firstTokenAt = performance.now();
+            pm.draft.append(String(evt.text ?? ""));
+            break;
+          }
+          case "usage": {
+            const u = evt.usage as { prompt_tokens?: number; completion_tokens?: number; cost?: number } | undefined;
+            pm.usage = {
+              promptTokens: u?.prompt_tokens,
+              completionTokens: u?.completion_tokens,
+              costUsd: typeof u?.cost === "number" ? u.cost : undefined,
+            };
+            break;
+          }
+          case "grounding": {
+            pm.grounding = {
+              queries: (evt.queries as string[]) ?? [],
+              sources: (evt.sources as NonNullable<Message["grounding"]>["sources"]) ?? [],
+            };
+            break;
+          }
+          case "error": {
+            finalize(pm, { error: String(evt.message ?? "Request failed"), pending: false });
+            break;
+          }
+          case "http_error": {
+            finalize(pm, {
+              error: formatChatError(
+                String(evt.body ?? ""),
+                Number(evt.status ?? 0),
+                String(evt.statusText ?? ""),
+                pm.apiModel
+              ),
+              pending: false,
+            });
+            break;
+          }
+          case "stream_end": {
+            finalize(pm, {});
+            break;
+          }
+        }
+      }
+    }
+
+    // Response ended: close out any columns that never got a stream_end.
+    for (const pm of perModel.values()) finalize(pm, {});
+  } catch (err: unknown) {
+    if ((err as { name?: string })?.name === "AbortError") {
+      for (const pm of perModel.values()) finalize(pm, {});
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    for (const pm of perModel.values()) finalize(pm, { error: message, pending: false });
+  }
 }

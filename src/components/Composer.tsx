@@ -15,6 +15,7 @@ import {
   buildModelFamilies,
   dedupeModelIdsByFamily,
   getCloudOllamaModelInfos,
+  getCloudOllamaModelNames,
   getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
@@ -59,7 +60,7 @@ export function Composer({ convId }: { convId: string }) {
       isApiProviderEnabled(route.apiProvider, enabledSettings)
     );
     const hostedOllamaRoutes = cloudOllamaEnabled
-      ? getCloudOllamaModelInfos(ollamaCloudModels)
+      ? getCloudOllamaModelInfos(getCloudOllamaModelNames(ollamaCloudModels))
       : [];
     const localRoutes = localEnabled
       ? availableLocalModels

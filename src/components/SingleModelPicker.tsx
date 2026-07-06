@@ -6,6 +6,7 @@ import {
   buildModelFamilies,
   getCustomProviderModelInfos,
   getCloudOllamaModelInfos,
+  getCloudOllamaModelNames,
   getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
@@ -53,7 +54,9 @@ export function SingleModelPicker({
     const baseRoutes = MODEL_CATALOG.filter((route) =>
       isApiProviderEnabled(route.apiProvider, enabledSettings)
     );
-    const hostedOllamaRoutes = cloudOllamaEnabled ? getCloudOllamaModelInfos(ollamaCloudModels) : [];
+    const hostedOllamaRoutes = cloudOllamaEnabled
+      ? getCloudOllamaModelInfos(getCloudOllamaModelNames(ollamaCloudModels))
+      : [];
     const localRoutes = localEnabled
       ? availableLocalModels
           .filter((model) => !isRemovedModelName(model.name))

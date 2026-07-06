@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 
-const OPENCODE_MODELS_URL = "https://opencode.ai/zen/v1/models";
+const OPENCODE_MODELS_URLS = [
+  "https://api.opencode.ai/zen/v1/models",
+  "https://api.opencode.ai/v1/models",
+  "https://opencode.ai/zen/v1/models",
+] as const;
 
 type OpenCodeModelsResponse = {
   data?: Array<{ id?: string }>;
@@ -13,20 +17,39 @@ export async function GET(req: NextRequest) {
     process.env.OPENCODE_API_KEY ||
     null;
 
-  const upstream = await fetch(OPENCODE_MODELS_URL, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-  }).catch((err: unknown) => {
+  let upstream: Response | null = null;
+  let lastError: string | null = null;
+  for (const url of OPENCODE_MODELS_URLS) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+      });
+
+      // Retry on upstream gateway/server errors with the next known endpoint.
+      if (res.status >= 500) {
+        lastError = `HTTP ${res.status} from ${url}`;
+        continue;
+      }
+
+      upstream = res;
+      break;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  if (!upstream) {
     return new Response(
-      `OpenCode Zen is not reachable. ${err instanceof Error ? err.message : String(err)}`,
+      `OpenCode Zen is not reachable. ${lastError ?? "No healthy endpoint responded."}`,
       { status: 502 }
     );
-  });
+  }
 
-  if (upstream instanceof Response && upstream.status !== 200) {
+  if (upstream.status !== 200) {
     const message = await upstream.text().catch(() => `HTTP ${upstream.status}`);
     return Response.json(
       { error: message || `OpenCode Zen returned HTTP ${upstream.status}` },
@@ -34,7 +57,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const json = (await (upstream as Response).json().catch(() => ({}))) as OpenCodeModelsResponse;
+  const json = (await upstream.json().catch(() => ({}))) as OpenCodeModelsResponse;
   const models = (json.data ?? [])
     .map((model) => ({ id: model.id ?? "" }))
     .filter((model) => model.id)

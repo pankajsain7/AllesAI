@@ -391,47 +391,48 @@ export function ConsensusButton({ convId }: { convId: string }) {
 
   return (
     <>
-      <div className="fixed bottom-24 right-6 z-30 flex flex-col items-end gap-2">
-        <div className="flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            disabled={!canRunConsensus || loading}
-            onClick={() => runConsensus("single")}
-            className={
-              "inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium text-white shadow-lg transition " +
-              (canRunConsensus
-                ? "bg-gradient-to-r from-purple-500 to-blue-500 shadow-purple-500/30 hover:scale-105"
-                : "cursor-not-allowed bg-[var(--fg-muted)] opacity-70 shadow-black/10")
-            }
-            title={
-              canRunConsensus
-                ? `Synthesize with ${consensusInfo ? getModelAlias(consensusInfo) : "the consensus model"}`
-                : consensusDisabledReason
-            }
-          >
-            <Sparkles size={14} />
-            Consensus
-          </button>
-          <button
-            type="button"
-            disabled={!canRunCouncil || loading}
-            onClick={() => runConsensus("council")}
-            className={
-              "inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium shadow-lg transition " +
-              (canRunCouncil
-                ? "border-[var(--border-strong)] bg-[var(--bg-elevated)] text-[var(--fg)] shadow-black/15 hover:scale-105 hover:bg-[var(--bg)]"
-                : "cursor-not-allowed border-transparent bg-[var(--fg-muted)] text-white opacity-70 shadow-black/10")
-            }
-            title={
-              canRunCouncil
-                ? "Run a multi-model council with a dedicated final moderator"
-                : councilDisabledReason
-            }
-          >
-            <Users size={14} />
-            Council
-          </button>
-        </div>
+      <div className="fixed bottom-24 right-6 z-30">
+        <button
+          type="button"
+          disabled={!canRunConsensus || loading}
+          onClick={() => runConsensus("single")}
+          className={
+            "inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium shadow-lg transition " +
+            (canRunConsensus
+              ? "border-[var(--border-strong)] bg-[var(--bg-elevated)] text-[var(--fg)] shadow-black/15 hover:scale-105 hover:bg-[var(--bg)]"
+              : "cursor-not-allowed border-transparent bg-[var(--fg-muted)] text-white opacity-70 shadow-black/10")
+          }
+          title={
+            canRunConsensus
+              ? `Synthesize with ${consensusInfo ? getModelAlias(consensusInfo) : "the consensus model"}`
+              : consensusDisabledReason
+          }
+        >
+          <Sparkles size={14} />
+          Consensus
+        </button>
+      </div>
+
+      <div className="fixed bottom-6 right-6 z-30">
+        <button
+          type="button"
+          disabled={!canRunCouncil || loading}
+          onClick={() => runConsensus("council")}
+          className={
+            "inline-flex items-center gap-1.5 rounded-full border px-4 py-2.5 text-sm font-medium shadow-lg transition " +
+            (canRunCouncil
+              ? "border-[var(--border-strong)] bg-[var(--bg-elevated)] text-[var(--fg)] shadow-black/15 hover:scale-105 hover:bg-[var(--bg)]"
+              : "cursor-not-allowed border-transparent bg-[var(--fg-muted)] text-white opacity-70 shadow-black/10")
+          }
+          title={
+            canRunCouncil
+              ? "Run a multi-model council with a dedicated final moderator"
+              : councilDisabledReason
+          }
+        >
+          <Users size={14} />
+          Council
+        </button>
       </div>
 
       {open && (
