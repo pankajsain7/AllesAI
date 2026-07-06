@@ -11,3 +11,7 @@ Before doing anything else on any task, read every file in the `instructions/` f
 - `instructions/commit-rules.md` — rules for git identity, commit grouping, commit messages, and pushing
 
 These files are the source of truth. Every rule in them applies to every task, every tool, every agent.
+
+## Mandatory: ponytail-first execution
+
+For every task, apply `ponytail` lazy-code reasoning before any implementation action (code edits, architecture decisions, dependency changes, or non-trivial plans).

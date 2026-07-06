@@ -13,6 +13,29 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-07-06] Enforce ponytail-first workflow for all agent tasks
+**Changed:** `AGENTS.md`, `.github/copilot-instructions.md`, `instructions/agent-behavior.md`
+**Why:** User requested ponytail lazy-code skill to be applied every time before writing code or making implementation decisions.
+**Summary:** Added mandatory ponytail-first directives in both instruction entry points and the core behavior rules. The agent now treats ponytail as required for each task, defaults to full intensity, and follows a strict simplify-first order before any implementation work.
+
+## [2026-07-06] Fix OpenCode model toggle bug; extend browse/import to Groq and Gemini; declutter picker
+**Changed:** `src/lib/store.ts`, `src/lib/models.ts`, `src/components/SettingsDialog.tsx`, `src/components/ModelPicker.tsx`, `src/components/SingleModelPicker.tsx`, `src/app/api/groq/models/route.ts` (new), `src/app/api/gemini/models/route.ts` (new)
+**Why:** Toggling any OpenCode model (e.g. DeepSeek V4 Flash Free) on did nothing because `normalizeModelId` didn't recognize `opencode/` ids and silently dropped them from `selectedModels`. The user also asked to browse/import models for all API providers, surface free models first, and keep the picker uncluttered.
+**Summary:** Fixed `normalizeModelId` to accept `opencode/`, `groq/`, and bare `gemini*` ids instead of validating only against the old static catalog. Added `getGroqExtraModelInfo(s)`/`getGeminiExtraModelInfo(s)` (generic id-based fallback, brand-guessed icons) plus `groqExtraModels`/`geminiExtraModels` persisted settings (v8 migration) and new `GET /api/groq/models` / `GET /api/gemini/models` proxies, so Groq and Gemini now get the same "Browse models" checklist as OpenCode/custom providers. Refactored the browse-panel state into a shared `useModelBrowser` hook, added a free/paid sort + "Free" badge to `ModelBrowsePanel` and to each `ModelFamilyRow` in the picker, and made `compareFamilies` sort free families ahead of paid ones everywhere so free options always surface first without manual grouping.
+
+
+## [2026-07-06] Browse and import models from OpenCode Zen and custom providers
+**Changed:** `src/lib/models.ts`, `src/lib/store.ts`, `src/components/SettingsDialog.tsx`, `src/components/ModelPicker.tsx`, `src/components/SingleModelPicker.tsx`, `src/app/api/opencode/models/route.ts` (new), `src/app/api/custom/models/route.ts` (new)
+**Why:** OpenCode Zen only shipped 5 hardcoded free models and custom OpenAI-compatible providers required manually typing model IDs; the user wanted to see the full list of models an API key/provider offers and pick which ones to import.
+**Summary:** OpenCode models are now generated dynamically from a user-selected `opencodeModels` list (persisted, defaults to the previous 5 free models) instead of a fixed catalog; unknown ids get a generic label. Added `GET /api/opencode/models` (proxies `https://opencode.ai/zen/v1/models`) and `GET /api/custom/models` (proxies `<baseUrl>/models` for any OpenAI-compatible provider). Added a shared `ModelBrowsePanel` checklist UI (with filter) in `SettingsDialog.tsx`, wired to a "Browse models" button for both the OpenCode section and each custom provider editor, so users can fetch the live model list and check which ones to enable. Bumped settings persist to v7 for the new field.
+
+
+## [2026-07-06] Finish OpenCode Zen provider integration (plan item 1)
+**Changed:** `src/lib/providers.ts`, `src/lib/models.ts`, `src/lib/store.ts`, `src/lib/model-rules.ts`, `src/lib/chat-client.ts`, `src/app/api/chat/route.ts`, `src/components/ProviderIcon.tsx`, `src/components/SettingsDialog.tsx`, `src/components/ModelPicker.tsx`, `src/components/SingleModelPicker.tsx`, `src/components/Composer.tsx`, `src/components/HeroComposer.tsx`, `src/app/page.tsx`
+**Why:** `src/app/api/consensus/route.ts` and `ConsensusButton.tsx` already referenced OpenCode (`opencodeApiKey`/`opencodeEnabled`) but the rest of the app (provider catalog, settings store, chat route, pickers, UI) never defined them, so the project failed to type-check.
+**Summary:** Added `opencode` as a real `ProviderKey`/`ApiProviderKey`, added the 5 free OpenCode Zen models (Big Pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, North Mini Code Free, Nemotron 3 Ultra Free) to the model catalog, added `opencodeApiKey`/`opencodeEnabled` to the settings store (persist v6 migration), added OpenCode access checks to `model-rules.ts`, added a streaming `opencode/` route in `/api/chat` (mirrors the consensus route's Zen gateway call), wired the API key through `chat-client.ts`, added a Settings toggle + key input, and included OpenCode in `ModelPicker`/`SingleModelPicker`/`Composer`/`HeroComposer`/`page.tsx` enabled-provider plumbing. Verified with `tsc --noEmit`, `next lint`, and `next build`.
+
+
 ## [2026-06-30] Use delimiter in prompt to split answer from analysis
 **Changed:** `src/app/api/consensus/route.ts`, `src/components/SharedResultsLane.tsx`
 **Why:** Section parsing via regex was fragile — the model output didn't match expected format, hiding the answer and showing broken content. Needed a reliable way to separate the answer from the analysis sections.

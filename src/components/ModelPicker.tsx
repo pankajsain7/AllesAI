@@ -5,16 +5,22 @@ import {
   MODEL_CATALOG,
   buildModelFamilies,
   getCustomProviderModelInfos,
+  getCloudOllamaModelInfos,
+  getGeminiExtraModelInfos,
+  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModel,
   getModelFamilyId,
-  getPresetCloudOllamaModelInfos,
+  getOpenCodeModelInfos,
   isCloudOllamaModelId,
   isOllamaModelId,
   type ModelFamily,
   type ModelInfo,
 } from "@/lib/models";
-import { API_PROVIDERS, PROVIDERS, type ApiProviderKey } from "@/lib/providers";
+import {
+  API_PROVIDERS,
+  PROVIDERS,
+} from "@/lib/providers";
 import { isRemovedModelName } from "@/lib/model-rules";
 import {
   isApiProviderEnabled,
@@ -36,20 +42,26 @@ export function ModelPicker({ convId }: { convId: string }) {
   const setSelectedModels = useChat((s) => s.setSelectedModels);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
+  const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
+  const ollamaCloudModels = useSettings((s) => s.ollamaCloudModels);
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const customProviders = useSettings((s) => s.customProviders);
+  const opencodeModels = useSettings((s) => s.opencodeModels);
+  const groqExtraModels = useSettings((s) => s.groqExtraModels);
+  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
       geminiEnabled,
+      opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled]
+    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const baseRoutes = useMemo(
@@ -61,8 +73,8 @@ export function ModelPicker({ convId }: { convId: string }) {
   );
 
   const hostedOllamaRoutes = useMemo(
-    () => (cloudOllamaEnabled ? getPresetCloudOllamaModelInfos() : []),
-    [cloudOllamaEnabled]
+    () => (cloudOllamaEnabled ? getCloudOllamaModelInfos(ollamaCloudModels) : []),
+    [cloudOllamaEnabled, ollamaCloudModels]
   );
 
   const localRoutes = useMemo(() => {
@@ -77,22 +89,54 @@ export function ModelPicker({ convId }: { convId: string }) {
     [customProviders]
   );
 
+  const opencodeRoutes = useMemo(
+    () => (opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : []),
+    [opencodeEnabled, opencodeModels]
+  );
+
+  const groqExtraRoutes = useMemo(
+    () => (groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : []),
+    [groqEnabled, groqExtraModels]
+  );
+
+  const geminiExtraRoutes = useMemo(
+    () => (geminiEnabled ? getGeminiExtraModelInfos(geminiExtraModels) : []),
+    [geminiEnabled, geminiExtraModels]
+  );
+
   const families = useMemo(
-    () => buildModelFamilies([...baseRoutes, ...hostedOllamaRoutes, ...localRoutes, ...customRoutes]),
-    [baseRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
+    () =>
+      buildModelFamilies([
+        ...baseRoutes,
+        ...opencodeRoutes,
+        ...groqExtraRoutes,
+        ...geminiExtraRoutes,
+        ...hostedOllamaRoutes,
+        ...localRoutes,
+        ...customRoutes,
+      ]),
+    [baseRoutes, opencodeRoutes, groqExtraRoutes, geminiExtraRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
+  );
+
+  const availableFamilyIds = useMemo(
+    () => new Set(families.map((family) => family.familyId)),
+    [families]
   );
 
   if (!conv) return null;
 
   const activeSelectedModels = conv.selectedModels.filter((id) => {
     const model = getModel(id);
-    return model ? isApiProviderEnabled(model.apiProvider, enabledSettings) : false;
+    if (!model) return false;
+    if (!isApiProviderEnabled(model.apiProvider, enabledSettings)) return false;
+    return availableFamilyIds.has(getModelFamilyId(id));
   });
 
   const activeByFamily = new Map<string, string>();
   for (const id of activeSelectedModels) {
     activeByFamily.set(getModelFamilyId(id), id);
   }
+  const activeSelectedFamilyCount = activeByFamily.size;
 
   const visibleFamilies = families.filter((family) => matchesQuery(family, query));
   const selectedLocalCount = activeSelectedModels.filter(isOllamaModelId).length;
@@ -113,14 +157,14 @@ export function ModelPicker({ convId }: { convId: string }) {
     }
 
     if (!handled && routeId) next.push(routeId);
+    // Keep at least one model selected via the picker UI.
+    if (next.length === 0) return;
     setSelectedModels(convId, next);
   };
 
   const isRouteAvailable = (route: ModelInfo) => {
     return isApiProviderEnabled(route.apiProvider, enabledSettings);
   };
-
-  const sourceCounts = getSourceCounts(activeSelectedModels);
 
   return (
     <>
@@ -131,7 +175,7 @@ export function ModelPicker({ convId }: { convId: string }) {
         <Sliders size={12} />
         <span className="hidden sm:inline">Models</span>
         <span className="rounded-full bg-[var(--bg-soft)] px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
-          {activeSelectedModels.length}
+          {activeSelectedFamilyCount}
         </span>
       </button>
 
@@ -149,7 +193,7 @@ export function ModelPicker({ convId }: { convId: string }) {
                 <div>
                   <h2 className="text-sm font-semibold">Models</h2>
                   <p className="text-xs text-[var(--fg-muted)]">
-                    Pick one model family, then choose which API provider should run it.
+                    Pick model families and choose where each one runs.
                   </p>
                 </div>
                 <button
@@ -170,24 +214,13 @@ export function ModelPicker({ convId }: { convId: string }) {
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search models, sources, or tasks"
+                    placeholder="Search models"
                     className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] py-2 pl-8 pr-2 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)] focus:border-[var(--border-strong)]"
                   />
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-1.5">
-                  <SourcePill label="Groq" count={sourceCounts.groq} muted={!groqEnabled} />
-                  <SourcePill label="Gemini" count={sourceCounts.gemini} muted={!geminiEnabled} />
-                  <SourcePill
-                    label="Ollama"
-                    count={sourceCounts["ollama-cloud"]}
-                    muted={!cloudOllamaEnabled}
-                  />
-                  <SourcePill
-                    label="Local"
-                    count={sourceCounts["ollama-local"]}
-                    muted={!localEnabled}
-                  />
-                </div>
+                <span className="text-[11px] text-[var(--fg-muted)]">
+                  {visibleFamilies.length} available
+                </span>
               </div>
             </div>
 
@@ -213,6 +246,7 @@ export function ModelPicker({ convId }: { convId: string }) {
                         family={family}
                         activeId={activeId}
                         enabled={enabled}
+                        disableToggleOff={enabled && activeSelectedFamilyCount <= 1}
                         defaultRoute={defaultRoute}
                         isRouteAvailable={isRouteAvailable}
                         routeUnavailableReason={(route) =>
@@ -239,7 +273,7 @@ export function ModelPicker({ convId }: { convId: string }) {
 
             <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--bg-soft)] px-5 py-3">
               <span className="text-xs text-[var(--fg-muted)]">
-                {activeSelectedModels.length} model famil{activeSelectedModels.length === 1 ? "y" : "ies"} selected
+                {activeSelectedFamilyCount} model famil{activeSelectedFamilyCount === 1 ? "y" : "ies"} selected
                 {selectedLocalCount > 0 && ` - ${selectedLocalCount} local`}
                 {selectedCloudCount > 0 && ` - ${selectedCloudCount} Ollama`}
               </span>
@@ -261,6 +295,7 @@ function ModelFamilyRow({
   family,
   activeId,
   enabled,
+  disableToggleOff,
   defaultRoute,
   isRouteAvailable,
   routeUnavailableReason,
@@ -270,21 +305,29 @@ function ModelFamilyRow({
   family: ModelFamily;
   activeId?: string;
   enabled: boolean;
+  disableToggleOff?: boolean;
   defaultRoute: ModelInfo;
   isRouteAvailable: (route: ModelInfo) => boolean;
   routeUnavailableReason: (route: ModelInfo) => string | null;
   onRoutePick: (routeId: string) => void;
   onToggle: (enabled: boolean) => void;
 }) {
-  const provider = PROVIDERS[family.provider];
   const activeRoute = activeId ? getModel(activeId) : undefined;
   const routeForLabel = activeRoute ?? defaultRoute;
   const activeUnavailable = activeRoute && !isRouteAvailable(activeRoute);
+  const contextLabel = formatContext(family.context);
+  const detailParts = [
+    contextLabel,
+    family.category,
+    family.vision ? "Vision" : null,
+    family.thinking ? "Thinking" : null,
+    activeUnavailable ? "Source unavailable" : null,
+  ].filter(Boolean) as string[];
 
   return (
     <div
       className={
-        "grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg border bg-[var(--bg)] p-2.5 " +
+        "grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border bg-[var(--bg)] p-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center " +
         (enabled
           ? "border-[var(--border-strong)]"
           : "border-[var(--border)]")
@@ -298,39 +341,34 @@ function ModelFamilyRow({
             {family.label}
           </span>
           {family.routes.length > 1 && (
-            <span className="rounded bg-[var(--bg-soft)] px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
-              {family.routes.length} sources
+            <span className="rounded bg-[var(--bg-soft)] px-1.5 py-0.5 text-[10px] text-[var(--fg-subtle)]">
+              {family.routes.length} providers
             </span>
           )}
         </div>
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-[var(--fg-muted)]">
-          <span>{provider.name}</span>
-          {formatContext(family.context) && <span>{formatContext(family.context)}</span>}
-          {family.category && <span>{family.category}</span>}
-          {family.vision && <span className="text-blue-500">vision</span>}
-          {family.thinking && <span className="text-purple-500">thinking</span>}
-          {activeUnavailable && (
-            <span className="text-yellow-600">
-              source off
-            </span>
-          )}
-        </div>
+        {detailParts.length > 0 && (
+          <div className="mt-0.5 truncate text-[11px] text-[var(--fg-muted)]">
+            {detailParts.join(" • ")}
+          </div>
+        )}
       </div>
 
-      <RouteDropdown
-        family={family}
-        activeId={activeId}
-        labelRoute={routeForLabel}
-        isRouteAvailable={isRouteAvailable}
-        routeUnavailableReason={routeUnavailableReason}
-        onPick={onRoutePick}
-      />
+      <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:justify-end">
+        <RouteDropdown
+          family={family}
+          activeId={activeId}
+          labelRoute={routeForLabel}
+          isRouteAvailable={isRouteAvailable}
+          routeUnavailableReason={routeUnavailableReason}
+          onPick={onRoutePick}
+        />
 
-      <Toggle
-        on={enabled}
-        onChange={onToggle}
-        disabled={!enabled && !isRouteAvailable(defaultRoute)}
-      />
+        <Toggle
+          on={enabled}
+          onChange={onToggle}
+          disabled={(!enabled && !isRouteAvailable(defaultRoute)) || (enabled && disableToggleOff)}
+        />
+      </div>
     </div>
   );
 }
@@ -406,7 +444,7 @@ function RouteDropdown({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-8 min-w-[118px] items-center justify-between gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[11px] text-[var(--fg)] hover:border-[var(--border-strong)]"
+        className="inline-flex h-7 min-w-[108px] items-center justify-between gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[11px] text-[var(--fg)] hover:border-[var(--border-strong)]"
       >
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <ApiProviderIcon provider={labelRoute.apiProvider} size={16} />
@@ -439,35 +477,18 @@ function RouteDropdown({
                     setOpen(false);
                   }}
                   className={
-                    "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-[var(--bg-soft)] disabled:cursor-not-allowed disabled:opacity-50 " +
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--bg-soft)] disabled:cursor-not-allowed disabled:opacity-50 " +
                     (selected ? "bg-[var(--bg-soft)]" : "")
                   }
                 >
-                  <ApiProviderIcon provider={route.apiProvider} size={18} />
+                  <ApiProviderIcon provider={route.apiProvider} size={16} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-medium text-[var(--fg)]">
-                        {providerInfo.name}
-                      </span>
+                      <span className="font-medium text-[var(--fg)]">{providerInfo.shortName}</span>
                       {selected && <Check size={12} className="text-[var(--accent)]" />}
                     </div>
-                    <div className="mt-0.5 truncate text-[10px] text-[var(--fg-muted)]">
-                      {route.routeHint ?? route.id}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1 text-[9px] text-[var(--fg-subtle)]">
-                      {route.free ? (
-                        <span className="text-emerald-600">free</span>
-                      ) : (
-                        <span
-                          className="text-amber-700"
-                          title={route.accessHint ?? "This route may require paid access."}
-                        >
-                          {route.accessLabel ?? "paid"}
-                        </span>
-                      )}
-                      {route.paramSize && <span>{route.paramSize}</span>}
-                      {route.bestFor && <span>{route.bestFor}</span>}
-                      {unavailable && <span className="text-yellow-600">{unavailable}</span>}
+                    <div className="truncate text-[10px] text-[var(--fg-muted)]">
+                      {unavailable ?? (route.free ? "Free" : route.accessLabel ?? "Paid")}
                     </div>
                   </div>
                 </button>
@@ -477,29 +498,6 @@ function RouteDropdown({
         </>
       )}
     </div>
-  );
-}
-
-function SourcePill({
-  label,
-  count,
-  muted,
-}: {
-  label: string;
-  count: number;
-  muted?: boolean;
-}) {
-  return (
-    <span
-      className={
-        "rounded-full px-2 py-0.5 text-[10px] font-medium " +
-        (muted
-          ? "bg-[var(--bg)] text-[var(--fg-subtle)]"
-          : "bg-[var(--bg)] text-[var(--fg-muted)]")
-      }
-    >
-      {label} {count}
-    </span>
   );
 }
 
@@ -541,23 +539,6 @@ function routeUnavailableReason(
   if (route.apiProvider === "ollama-local" && !localEnabled) return "Enable local models";
   if (route.apiProvider === "ollama-cloud" && !cloudOllamaEnabled) return "Enable Ollama";
   return null;
-}
-
-function getSourceCounts(modelIds: string[]): Record<ApiProviderKey, number> {
-  const counts: Record<ApiProviderKey, number> = {
-    groq: 0,
-    gemini: 0,
-    "ollama-cloud": 0,
-    "ollama-local": 0,
-    custom: 0,
-  };
-
-  for (const id of modelIds) {
-    const model = getModel(id);
-    if (model) counts[model.apiProvider] += 1;
-  }
-
-  return counts;
 }
 
 function matchesQuery(family: ModelFamily, rawQuery: string): boolean {

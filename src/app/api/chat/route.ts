@@ -15,6 +15,7 @@ type RequestBody = {
   messages: ChatMessage[];
   apiKey?: string;
   geminiApiKey?: string;
+  opencodeApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;
   ollamaCloudBaseUrl?: string;
@@ -23,6 +24,8 @@ type RequestBody = {
 
 const GROQ_URL    = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
+const OPENCODE_PREFIX = "opencode/";
 const OLLAMA_PREFIX = "ollama/";
 const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
 const CUSTOM_PREFIX = "custom/";
@@ -502,6 +505,36 @@ export async function POST(req: NextRequest) {
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  // OpenCode Zen gateway path (opencode/<model-name>).
+  if (model.startsWith(OPENCODE_PREFIX)) {
+    const opencodeModel = model.slice(OPENCODE_PREFIX.length);
+    if (!opencodeModel) return new Response("Missing OpenCode model name.", { status: 400 });
+
+    const opencodeKey = body.opencodeApiKey || process.env.OpenCode_API_Key || process.env.OPENCODE_API_KEY;
+    if (!opencodeKey) {
+      return new Response("No OpenCode API key. Add OpenCode_API_Key to .env.local or Settings.", { status: 401 });
+    }
+
+    const upstream = await fetch(OPENCODE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${opencodeKey}` },
+      body: JSON.stringify({ model: opencodeModel, messages, stream: true }),
+    }).catch((err: unknown) => {
+      return new Response(
+        `OpenCode Zen is unreachable. ${err instanceof Error ? err.message : String(err)}`,
+        { status: 502 }
+      );
+    });
+
+    if (upstream instanceof Response && upstream.status !== 200) {
+      const errBody = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+      return new Response(errBody, { status: upstream.status });
+    }
+    const upstreamRes = upstream as Response;
+    if (!upstreamRes.body) return new Response("No response body", { status: 502 });
+    return streamOpenAiCompatible(upstreamRes);
   }
 
   // OpenAI-compatible path (Groq only).

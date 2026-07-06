@@ -30,27 +30,29 @@ const PATHS: Partial<Record<ProviderKey, string>> = {
 
 const API_PATHS: Partial<Record<ApiProviderKey, string>> = {};
 
-// Letter fallback for brands without a SimpleIcons path
+// Monogram fallback for brands without a SimpleIcons path.
 const LETTERS: Record<ProviderKey, string> = {
-  openai:   "O",
-  cogito:   "C",
-  deepseek: "D",
+  openai:   "OA",
+  cogito:   "CG",
+  deepseek: "DS",
   meta:     "M",
-  nvidia:   "N",
-  qwen:     "Q",
+  nvidia:   "NV",
+  qwen:     "QW",
   gemini:   "G",
-  zhipu:    "Z",
-  minimax:  "M",
-  ollama:   "O",
-  custom:   "C",
+  zhipu:    "ZP",
+  minimax:  "MM",
+  opencode: "OC",
+  ollama:   "OL",
+  custom:   "CU",
 };
 
 const API_LETTERS: Record<ApiProviderKey, string> = {
-  groq: "G",
-  gemini: "G",
-  "ollama-cloud": "O",
-  "ollama-local": "O",
-  custom: "C",
+  groq: "GQ",
+  gemini: "GM",
+  opencode: "OC",
+  "ollama-cloud": "OL",
+  "ollama-local": "LC",
+  custom: "CU",
 };
 
 export function ProviderIcon({
@@ -114,7 +116,8 @@ function IconTile({
 }) {
   const borderRadius = Math.round(size * 0.26);
   const iconSize = Math.round(size * 0.62);
-  const fontSize = Math.round(size * 0.52);
+  const compact = letter.length > 1;
+  const fontSize = Math.round(size * (compact ? 0.34 : 0.52));
 
   return (
     <span
@@ -139,7 +142,7 @@ function IconTile({
             fontSize,
             fontWeight: 800,
             lineHeight: 1,
-            letterSpacing: 0,
+            letterSpacing: compact ? 0.2 : 0,
             fontFamily: "system-ui, -apple-system, sans-serif",
           }}
         >

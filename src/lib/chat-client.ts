@@ -1,7 +1,7 @@
 "use client";
 
 import { filterEnabledModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId } from "./store";
-import { isCloudOllamaModelId, isOllamaModelId, type ModelInfo } from "./models";
+import { isCloudOllamaModelId, isOllamaModelId, isOpenCodeModelId, type ModelInfo } from "./models";
 import { streamDraftKey, useStreamDrafts } from "./stream-drafts";
 
 // Per-model abort controllers for mid-stream stopping
@@ -115,6 +115,9 @@ function formatChatError(raw: string, status: number, statusText: string, modelI
   if (status === 502 && isCloudOllamaModelId(modelId)) {
     return "Ollama API is unreachable. Check the base URL in Settings.";
   }
+  if (status === 502 && isOpenCodeModelId(modelId)) {
+    return "OpenCode Zen is unreachable. Check your OpenCode API key in Settings.";
+  }
 
   return parsed || "Request failed";
 }
@@ -198,6 +201,7 @@ export async function streamModel(opts: {
         messages: toApiMessages(history, settings.systemPrompt, opts.webContext),
         apiKey: settings.apiKey || undefined,
         geminiApiKey: settings.geminiApiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,
         ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,

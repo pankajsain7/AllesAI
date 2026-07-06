@@ -67,6 +67,7 @@ export type CloudOllamaPreset = {
 export const OLLAMA_MODEL_PREFIX = "ollama/";
 export const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
 export const CUSTOM_MODEL_PREFIX = "custom/";
+export const OPENCODE_MODEL_PREFIX = "opencode/";
 
 // User-defined OpenAI-compatible API provider.
 export type CustomProvider = {
@@ -139,29 +140,197 @@ export const MODEL_CATALOG: ModelInfo[] = [
   },
 ];
 
+// OpenCode Zen is an AI gateway offering dozens of models (most paid). Rather
+// than statically listing all of them, users browse the live list (see
+// getOpenCodeModelInfos) and pick which ones to import. A handful of known
+// free models ship with curated metadata; anything else falls back to a
+// generic entry built from the model id alone.
+export const OPENCODE_KNOWN_MODELS: Record<
+  string,
+  {
+    label: string;
+    shortLabel?: string;
+    provider: ProviderKey;
+    category: string;
+    context: number;
+    thinking?: boolean;
+    vision?: boolean;
+    free: boolean;
+    bestFor?: string;
+  }
+> = {
+  "big-pickle": {
+    label: "Big Pickle",
+    provider: "opencode",
+    category: "General",
+    context: 128000,
+    free: true,
+    bestFor: "General chat",
+  },
+  "deepseek-v4-flash-free": {
+    label: "DeepSeek V4 Flash Free",
+    shortLabel: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    category: "Reasoning",
+    context: 128000,
+    thinking: true,
+    free: true,
+    bestFor: "Fast reasoning",
+  },
+  "mimo-v2.5-free": {
+    label: "MiMo 2.5 Free",
+    shortLabel: "MiMo 2.5",
+    provider: "opencode",
+    category: "General",
+    context: 128000,
+    free: true,
+    bestFor: "General chat",
+  },
+  "north-mini-code-free": {
+    label: "North Mini Code Free",
+    shortLabel: "North Mini Code",
+    provider: "opencode",
+    category: "Coding",
+    context: 128000,
+    free: true,
+    bestFor: "Code generation",
+  },
+  "nemotron-3-ultra-free": {
+    label: "Nemotron 3 Ultra Free",
+    shortLabel: "Nemotron 3 Ultra",
+    provider: "nvidia",
+    category: "Reasoning",
+    context: 128000,
+    thinking: true,
+    free: true,
+    bestFor: "Careful reasoning",
+  },
+};
+
+// Imported by default so existing users keep the same free models they had
+// before OpenCode model browsing existed.
+export const DEFAULT_OPENCODE_MODEL_IDS = Object.keys(OPENCODE_KNOWN_MODELS);
+
+// Turns a model id slug (e.g. "big-pickle", "llama-3.3-70b-versatile") into a
+// readable label. Shared by every "browse and import" fallback below.
+function humanizeModelSlug(name: string): string {
+  return name
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) =>
+      /^[a-z0-9.]+$/i.test(part) && part.length <= 4
+        ? part.toUpperCase()
+        : part.charAt(0).toUpperCase() + part.slice(1)
+    )
+    .join(" ");
+}
+
+export function toOpenCodeModelId(modelName: string): string {
+  return `${OPENCODE_MODEL_PREFIX}${modelName}`;
+}
+
+export function getOpenCodeModelName(id: string): string {
+  return id.slice(OPENCODE_MODEL_PREFIX.length);
+}
+
+export function getOpenCodeModelInfo(modelName: string): ModelInfo {
+  const known = OPENCODE_KNOWN_MODELS[modelName];
+  const label = known?.label ?? humanizeModelSlug(modelName);
+  return {
+    id: toOpenCodeModelId(modelName),
+    label,
+    shortLabel: known?.shortLabel ?? label,
+    provider: known?.provider ?? "opencode",
+    apiProvider: "opencode",
+    familyId: `opencode-${modelName}`,
+    free: known?.free ?? false,
+    context: known?.context ?? 0,
+    category: known?.category ?? "OpenCode",
+    thinking: known?.thinking,
+    vision: known?.vision,
+    routeHint: "OpenCode Zen gateway",
+    bestFor: known?.bestFor ?? "OpenCode Zen model",
+  };
+}
+
+export function getOpenCodeModelInfos(modelNames: string[]): ModelInfo[] {
+  return Array.from(new Set(modelNames)).map(getOpenCodeModelInfo);
+}
+
+// Groq serves models from many different labs. Guess a brand tile from the
+// model id so imported (non-core) Groq models still get a sensible icon.
+function guessGroqProviderBrand(modelName: string): ProviderKey {
+  const lower = modelName.toLowerCase();
+  if (lower.includes("llama")) return "meta";
+  if (lower.includes("qwen")) return "qwen";
+  if (lower.includes("gemma")) return "gemini";
+  if (lower.includes("deepseek")) return "deepseek";
+  if (lower.includes("gpt-oss") || lower.includes("openai")) return "openai";
+  if (lower.includes("nemotron")) return "nvidia";
+  if (lower.includes("glm")) return "zhipu";
+  if (lower.includes("minimax")) return "minimax";
+  return "custom";
+}
+
+// Extra (non-core) Groq models a user imports via "Browse models". Uses the
+// `groq/<name>` id scheme, which the chat/consensus routes already strip.
+export function getGroqExtraModelInfo(modelName: string): ModelInfo {
+  const label = humanizeModelSlug(modelName);
+  return {
+    id: `groq/${modelName}`,
+    label,
+    shortLabel: label,
+    provider: guessGroqProviderBrand(modelName),
+    apiProvider: "groq",
+    familyId: `groq-extra-${modelName}`,
+    free: true,
+    context: 0,
+    category: "Groq",
+    routeHint: "Groq hosted model",
+    bestFor: "Imported Groq model",
+  };
+}
+
+export function getGroqExtraModelInfos(modelNames: string[]): ModelInfo[] {
+  return Array.from(new Set(modelNames)).map(getGroqExtraModelInfo);
+}
+
+// Extra (non-core) Gemini models a user imports via "Browse models". Gemini
+// model ids are already bare (e.g. "gemini-2.5-pro") and route correctly
+// through the existing `id.startsWith("gemini")` checks with no prefix.
+export function getGeminiExtraModelInfo(modelName: string): ModelInfo {
+  const label = humanizeModelSlug(modelName);
+  return {
+    id: modelName,
+    label,
+    shortLabel: label,
+    provider: "gemini",
+    apiProvider: "gemini",
+    familyId: `gemini-extra-${modelName}`,
+    free: false,
+    context: 0,
+    category: "Gemini",
+    routeHint: "Google Gemini API",
+    bestFor: "Imported Gemini model",
+  };
+}
+
+export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
+  return Array.from(new Set(modelNames)).map(getGeminiExtraModelInfo);
+}
+
+
 // Pre-defined hosted Ollama models (ollama.com API). They are folded into the
 // same family list as other routes when they refer to the same model.
 export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
   {
-    name: "gpt-oss:120b",
-    label: "GPT-OSS 120B",
-    shortLabel: "GPT-OSS 120B",
-    provider: "openai",
-    familyId: "gpt-oss-120b",
-    paramSize: "120B",
-    bestFor: "Advanced reasoning",
-    context: 131072,
-    category: "Reasoning",
-    thinking: true,
-  },
-  {
-    name: "cogito-2.1:671b",
-    label: "Cogito 2.1 671B",
-    shortLabel: "Cogito 2.1",
-    provider: "cogito",
-    familyId: "cogito-2-1-671b",
-    paramSize: "671B",
-    bestFor: "Careful reasoning",
+    name: "qwen3.5:397b",
+    label: "Qwen3.5 397B",
+    shortLabel: "Qwen3.5 397B",
+    provider: "qwen",
+    familyId: "qwen3-5-397b",
+    paramSize: "397B",
+    bestFor: "General reasoning, coding, agents",
     context: 256000,
     category: "Reasoning",
     thinking: true,
@@ -173,20 +342,20 @@ export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
     provider: "gemini",
     familyId: "gemma4-31b",
     paramSize: "31B",
-    bestFor: "Reasoning, general Q&A",
+    bestFor: "Fast general assistant",
     context: 256000,
-    category: "Reasoning",
+    category: "General",
     vision: true,
     thinking: true,
   },
   {
-    name: "nemotron-3-super",
-    label: "Nemotron 3 Super",
-    shortLabel: "Nemotron 3",
-    provider: "nvidia",
-    familyId: "nemotron-3-super",
-    paramSize: "Super",
-    bestFor: "Fast reasoning",
+    name: "minimax-m3",
+    label: "MiniMax M3",
+    shortLabel: "MiniMax M3",
+    provider: "minimax",
+    familyId: "minimax-m3",
+    paramSize: "M3",
+    bestFor: "Agentic workflows & reasoning",
     context: 256000,
     category: "Reasoning",
     thinking: true,
@@ -203,6 +372,10 @@ export function isCloudOllamaModelId(id: string): boolean {
 
 export function isCustomModelId(id: string): boolean {
   return id.startsWith(CUSTOM_MODEL_PREFIX) && id.split("/").length >= 3;
+}
+
+export function isOpenCodeModelId(id: string): boolean {
+  return id.startsWith(OPENCODE_MODEL_PREFIX) && id.length > OPENCODE_MODEL_PREFIX.length;
 }
 
 // custom/<providerId>/<modelName> — modelName may itself contain slashes.
@@ -260,6 +433,15 @@ export function getPresetCloudOllamaModelInfos(): ModelInfo[] {
   return PRESET_CLOUD_OLLAMA_MODELS.map(cloudPresetToModel);
 }
 
+export function getCloudOllamaModelInfo(modelName: string): ModelInfo {
+  const preset = PRESET_CLOUD_OLLAMA_MODELS.find((model) => model.name === modelName);
+  return preset ? cloudPresetToModel(preset) : ollamaNameToModel(modelName, "ollama-cloud");
+}
+
+export function getCloudOllamaModelInfos(modelNames: string[]): ModelInfo[] {
+  return Array.from(new Set(modelNames)).map(getCloudOllamaModelInfo);
+}
+
 export function getLocalOllamaModelInfo(modelName: string): ModelInfo {
   return ollamaNameToModel(modelName, "ollama-local");
 }
@@ -276,8 +458,19 @@ export function getModel(id: string): ModelInfo | undefined {
 
   if (isCloudOllamaModelId(id)) {
     const modelName = getCloudOllamaModelName(id);
-    const preset = PRESET_CLOUD_OLLAMA_MODELS.find((model) => model.name === modelName);
-    return preset ? cloudPresetToModel(preset) : ollamaNameToModel(modelName, "ollama-cloud");
+    return getCloudOllamaModelInfo(modelName);
+  }
+
+  if (isOpenCodeModelId(id)) {
+    return getOpenCodeModelInfo(getOpenCodeModelName(id));
+  }
+
+  if (id.startsWith("groq/")) {
+    return getGroqExtraModelInfo(id.slice("groq/".length));
+  }
+
+  if (id.startsWith("gemini")) {
+    return getGeminiExtraModelInfo(id);
   }
 
   if (isCustomModelId(id)) {
@@ -381,7 +574,31 @@ export const DEFAULT_SELECTED_MODELS = [
 // when this provider is unavailable.
 export const CONSENSUS_MODEL = "gemini-2.5-flash-lite";
 
+// ollama.com cloud models aren't per-model free/paid — every plan (including
+// Free) can call every hosted model, but usage is metered against a plan's
+// usage allowance (heavier models burn through it faster). So these get an
+// accurate "Ollama plan" access label instead of a blanket Free badge.
+const CLOUD_OLLAMA_ACCESS_LABEL = "Ollama plan";
+const CLOUD_OLLAMA_ACCESS_HINT =
+  "Metered by your ollama.com plan (Free/Pro/Max) — larger models use more of your usage allowance, not a separate fee.";
+
+// A handful of ollama.com cloud model families are actually free to run (no
+// plan-usage metering), unlike the rest of the cloud catalog. Matched by name
+// prefix/substring so every size/variant in a free family is covered.
+export function isFreeCloudOllamaModel(modelName: string): boolean {
+  const name = stripLatestTag(modelName).toLowerCase();
+  if (name.startsWith("gemma")) return true;
+  if (name.startsWith("qwen")) return true;
+  if (name.startsWith("ministral")) return true;
+  if (name.startsWith("minimax-m2.5") || name.startsWith("minimax-m3")) return true;
+  if (name.startsWith("glm-4.7")) return true;
+  if (name.startsWith("nemotron-3-super")) return true;
+  if (name.startsWith("gpt-oss") && extractParamSize(name) === "20B") return true;
+  return false;
+}
+
 function cloudPresetToModel(preset: CloudOllamaPreset): ModelInfo {
+  const free = preset.free ?? isFreeCloudOllamaModel(preset.name);
   return {
     id: toCloudOllamaModelId(preset.name),
     label: preset.label,
@@ -389,9 +606,9 @@ function cloudPresetToModel(preset: CloudOllamaPreset): ModelInfo {
     provider: preset.provider,
     apiProvider: "ollama-cloud",
     familyId: preset.familyId,
-    free: preset.free ?? true,
-    accessLabel: preset.accessLabel,
-    accessHint: preset.accessHint,
+    free,
+    accessLabel: preset.accessLabel ?? (free ? undefined : CLOUD_OLLAMA_ACCESS_LABEL),
+    accessHint: preset.accessHint ?? (free ? undefined : CLOUD_OLLAMA_ACCESS_HINT),
     context: preset.context,
     category: preset.category,
     vision: preset.vision,
@@ -409,6 +626,13 @@ function ollamaNameToModel(modelName: string, apiProvider: ApiProviderKey): Mode
       ? toCloudOllamaModelId(modelName)
       : toOllamaModelId(modelName);
 
+  const isCloud = apiProvider === "ollama-cloud";
+  // Local models run on your own hardware and are genuinely unlimited/free.
+  // Cloud models are metered by your ollama.com plan, except a handful of
+  // known-free families (Gemma, Qwen, Ministral, MiniMax M2.5/M3, GLM 4.7,
+  // Nemotron 3 Super, GPT-OSS 20B).
+  const free = !isCloud || isFreeCloudOllamaModel(modelName);
+
   return {
     id,
     label: inferred.label,
@@ -416,12 +640,14 @@ function ollamaNameToModel(modelName: string, apiProvider: ApiProviderKey): Mode
     provider: inferred.provider,
     apiProvider,
     familyId: inferred.familyId,
-    free: true,
+    free,
+    accessLabel: isCloud && !free ? CLOUD_OLLAMA_ACCESS_LABEL : undefined,
+    accessHint: isCloud && !free ? CLOUD_OLLAMA_ACCESS_HINT : undefined,
     context: inferred.context,
-    category: apiProvider === "ollama-cloud" ? inferred.category : inferred.category || "Local",
+    category: isCloud ? inferred.category : inferred.category || "Local",
     vision: inferred.vision,
     thinking: inferred.thinking,
-    routeHint: apiProvider === "ollama-cloud" ? "Ollama API" : "Installed local Ollama model",
+    routeHint: isCloud ? "Ollama API" : "Installed local Ollama model",
     bestFor: inferred.bestFor,
     paramSize: inferred.paramSize,
   };
@@ -631,7 +857,7 @@ function inferOllamaModel(modelName: string): Omit<ModelInfo, "id" | "apiProvide
     provider: "ollama",
     familyId: normalizeFamilyId(cleanName),
     context: 0,
-    category: isLikelyOllamaVisionModel(cleanName) ? "Vision" : "Local",
+    category: isLikelyOllamaVisionModel(cleanName) ? "Vision" : "General",
     vision: isLikelyOllamaVisionModel(cleanName),
     paramSize: size,
   };
@@ -647,8 +873,15 @@ function compareModelRoutes(a: ModelInfo, b: ModelInfo) {
 function compareFamilies(a: ModelFamily, b: ModelFamily) {
   return (
     PROVIDER_ORDER.indexOf(a.provider) - PROVIDER_ORDER.indexOf(b.provider) ||
+    familyFreeRank(a) - familyFreeRank(b) ||
     a.label.localeCompare(b.label)
   );
+}
+
+// Families with at least one free route sort ahead of fully paid families, so
+// browsing a large imported catalog surfaces the free options first.
+function familyFreeRank(family: ModelFamily): number {
+  return family.routes.some((route) => route.free) ? 0 : 1;
 }
 
 function stripLatestTag(modelName: string): string {

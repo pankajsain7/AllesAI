@@ -39,6 +39,8 @@ export default function Home() {
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const geminiApiKey = useSettings((s) => s.geminiApiKey);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
+  const opencodeApiKey = useSettings((s) => s.opencodeApiKey);
+  const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const ollamaApiKey = useSettings((s) => s.ollamaApiKey);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
@@ -80,6 +82,7 @@ export default function Home() {
   const enabledSettings: ProviderToggleSettings = {
     groqEnabled,
     geminiEnabled,
+    opencodeEnabled,
     cloudOllamaEnabled,
     localEnabled,
   };
@@ -106,6 +109,11 @@ export default function Home() {
     geminiEnabled &&
     !geminiApiKey &&
     selectedInfos.some((model) => model.apiProvider === "gemini");
+  const needsOpencodeKey =
+    !!conv &&
+    opencodeEnabled &&
+    !opencodeApiKey &&
+    selectedInfos.some((model) => model.apiProvider === "opencode");
   const needsLocalOllama =
     !!conv &&
     !localEnabled &&
@@ -117,6 +125,7 @@ export default function Home() {
   const setupNeeds = [
     needsGroqKey ? "Groq API key" : null,
     needsGeminiKey ? "Gemini API key" : null,
+    needsOpencodeKey ? "OpenCode API key" : null,
     needsLocalOllama ? "enable Local Ollama" : null,
     needsCloudOllama
       ? cloudOllamaEnabled

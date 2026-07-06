@@ -8,12 +8,14 @@ export type ProviderKey =
   | "gemini"
   | "zhipu"
   | "minimax"
+  | "opencode"
   | "ollama"
   | "custom";
 
 export type ApiProviderKey =
   | "groq"
   | "gemini"
+  | "opencode"
   | "ollama-cloud"
   | "ollama-local"
   | "custom";
@@ -41,6 +43,7 @@ export const PROVIDERS: Record<ProviderKey, ProviderInfo> = {
   gemini:   { key: "gemini",   name: "Google",   color: "#1a73e8" },
   zhipu:    { key: "zhipu",    name: "Zhipu",    color: "#2563eb" },
   minimax:  { key: "minimax",  name: "MiniMax",  color: "#111827" },
+  opencode: { key: "opencode", name: "OpenCode", color: "#ea580c" },
   ollama:   { key: "ollama",   name: "Ollama",   color: "#374151" },
   custom:   { key: "custom",   name: "Custom",   color: "#7c3aed" },
 };
@@ -57,6 +60,12 @@ export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
     name: "Gemini API",
     shortName: "Gemini",
     color: "#1a73e8",
+  },
+  opencode: {
+    key: "opencode",
+    name: "OpenCode Zen",
+    shortName: "OpenCode",
+    color: "#ea580c",
   },
   "ollama-cloud": {
     key: "ollama-cloud",
@@ -88,6 +97,7 @@ export const PROVIDER_ORDER: ProviderKey[] = [
   "gemini",
   "zhipu",
   "minimax",
+  "opencode",
   "ollama",
   "custom",
 ];
@@ -95,6 +105,7 @@ export const PROVIDER_ORDER: ProviderKey[] = [
 export const API_PROVIDER_ORDER: ApiProviderKey[] = [
   "groq",
   "gemini",
+  "opencode",
   "ollama-cloud",
   "ollama-local",
   "custom",

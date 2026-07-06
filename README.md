@@ -10,14 +10,15 @@
 
 | Model | Default source | Other selectable sources | Context | Notes |
 |---|---|---|---|---|
-| GPT-OSS 120B | Groq | Ollama, local if installed | 128K | Reasoning |
+| GPT-OSS 120B | Groq | Local Ollama if installed | 128K | Reasoning |
 | Llama 4 Scout 17B | Groq | Local Ollama if installed | 128K | Vision |
 | Qwen3 32B | Groq | Local Ollama if installed | 128K | General |
 | Gemini 2.5 Flash Lite | Google Gemini API | - | 1M | Vision |
-| Cogito 2.1 671B, Gemma 4 31B, Nemotron 3 Super | Ollama | Local Ollama if installed | varies | Optional hosted Q&A/reasoning models |
+| big-pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, North Mini Code Free, Nemotron 3 Ultra Free | OpenCode Zen | - | 128K | Curated free OpenCode Zen models |
+| Qwen3.5 397B, Gemma 4 31B, MiniMax M3 | Ollama (hosted API) | Local Ollama if installed | varies | Optional hosted reasoning/coding models |
 
-Core Groq and Gemini routes are available on free API tiers with your own key. Groq models require a [Groq API key](https://console.groq.com). Gemini requires a [Google AI Studio key](https://aistudio.google.com/api-keys).
-Optional hosted Ollama models require an Ollama API key, and some hosted models require an Ollama subscription. Optional local models come from your own Ollama install and are selected from the models already pulled on your machine.
+Core Groq and Gemini routes, plus the curated OpenCode Zen `-free` models, are available on free API tiers with your own key. Groq models require a [Groq API key](https://console.groq.com). Gemini requires a [Google AI Studio key](https://aistudio.google.com/api-keys). OpenCode Zen models require an OpenCode API key; only models with the `-free` suffix are free, others in its browsable catalog are paid.
+Optional hosted Ollama models require an Ollama API key, and some hosted models require an Ollama subscription. Optional local models come from your own Ollama install and are selected from the models already pulled on your machine. Users can also browse and add other (paid) models from Groq, Gemini, OpenCode Zen, and custom OpenAI-compatible providers via Settings.
 
 ## Features
 

@@ -4,19 +4,22 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   CONSENSUS_MODEL,
+  DEFAULT_OPENCODE_MODEL_IDS,
   DEFAULT_SELECTED_MODELS,
   MODEL_CATALOG,
-  PRESET_CLOUD_OLLAMA_MODELS,
   dedupeModelIdsByFamily,
-  getCloudOllamaModelName,
+  getCloudOllamaModelInfos,
+  getGeminiExtraModelInfos,
+  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModel,
   getModelFamilyId,
-  getPresetCloudOllamaModelInfos,
+  getOpenCodeModelInfos,
   getCustomProviderModelInfos,
   isCloudOllamaModelId,
   isCustomModelId,
   isOllamaModelId,
+  isOpenCodeModelId,
   type CustomProvider,
   type ModelInfo,
 } from "./models";
@@ -150,6 +153,16 @@ export type SettingsState = {
   setGeminiApiKey: (k: string) => void;
   geminiEnabled: boolean;
   setGeminiEnabled: (v: boolean) => void;
+  opencodeApiKey: string;
+  setOpencodeApiKey: (k: string) => void;
+  opencodeEnabled: boolean;
+  setOpencodeEnabled: (v: boolean) => void;
+  opencodeModels: string[];
+  setOpencodeModels: (models: string[]) => void;
+  groqExtraModels: string[];
+  setGroqExtraModels: (models: string[]) => void;
+  geminiExtraModels: string[];
+  setGeminiExtraModels: (models: string[]) => void;
   systemPrompt: string;
   setSystemPrompt: (s: string) => void;
   webSearch: boolean;
@@ -172,6 +185,8 @@ export type SettingsState = {
   setCloudOllamaEnabled: (v: boolean) => void;
   ollamaCloudBaseUrl: string;
   setOllamaCloudBaseUrl: (url: string) => void;
+  ollamaCloudModels: string[];
+  setOllamaCloudModels: (models: string[]) => void;
   availableLocalModels: LocalOllamaModel[];
   setAvailableLocalModels: (models: LocalOllamaModel[]) => void;
   customProviders: CustomProvider[];
@@ -182,7 +197,7 @@ export type SettingsState = {
 
 export type ProviderToggleSettings = Pick<
   SettingsState,
-  "groqEnabled" | "geminiEnabled" | "cloudOllamaEnabled" | "localEnabled"
+  "groqEnabled" | "geminiEnabled" | "opencodeEnabled" | "cloudOllamaEnabled" | "localEnabled"
 >;
 
 export const useSettings = create<SettingsState>()(
@@ -196,6 +211,16 @@ export const useSettings = create<SettingsState>()(
       setGeminiApiKey: (k) => set({ geminiApiKey: k }),
       geminiEnabled: true,
       setGeminiEnabled: (v) => set({ geminiEnabled: v }),
+      opencodeApiKey: "",
+      setOpencodeApiKey: (k) => set({ opencodeApiKey: k }),
+      opencodeEnabled: false,
+      setOpencodeEnabled: (v) => set({ opencodeEnabled: v }),
+      opencodeModels: DEFAULT_OPENCODE_MODEL_IDS,
+      setOpencodeModels: (models) => set({ opencodeModels: models }),
+      groqExtraModels: [],
+      setGroqExtraModels: (models) => set({ groqExtraModels: models }),
+      geminiExtraModels: [],
+      setGeminiExtraModels: (models) => set({ geminiExtraModels: models }),
       systemPrompt: "You are a helpful, concise assistant.",
       setSystemPrompt: (s) => set({ systemPrompt: s }),
       webSearch: false,
@@ -218,6 +243,8 @@ export const useSettings = create<SettingsState>()(
       setCloudOllamaEnabled: (v) => set({ cloudOllamaEnabled: v }),
       ollamaCloudBaseUrl: "https://ollama.com",
       setOllamaCloudBaseUrl: (url) => set({ ollamaCloudBaseUrl: url }),
+      ollamaCloudModels: [],
+      setOllamaCloudModels: (models) => set({ ollamaCloudModels: models }),
       availableLocalModels: [],
       setAvailableLocalModels: (models) => set({ availableLocalModels: models }),
       customProviders: [],
@@ -234,7 +261,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 5,
+      version: 9,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -242,6 +269,11 @@ export const useSettings = create<SettingsState>()(
           groqEnabled: state.groqEnabled ?? true,
           geminiApiKey: state.geminiApiKey ?? "",
           geminiEnabled: state.geminiEnabled ?? true,
+          opencodeApiKey: state.opencodeApiKey ?? "",
+          opencodeEnabled: state.opencodeEnabled ?? false,
+          opencodeModels: state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS,
+          groqExtraModels: state.groqExtraModels ?? [],
+          geminiExtraModels: state.geminiExtraModels ?? [],
           systemPrompt: state.systemPrompt ?? "You are a helpful, concise assistant.",
           webSearch: state.webSearch ?? false,
           tavilyApiKey: state.tavilyApiKey ?? "",
@@ -253,6 +285,7 @@ export const useSettings = create<SettingsState>()(
           ollamaApiKey: state.ollamaApiKey ?? "",
           cloudOllamaEnabled: state.cloudOllamaEnabled ?? false,
           ollamaCloudBaseUrl: state.ollamaCloudBaseUrl ?? "https://ollama.com",
+          ollamaCloudModels: state.ollamaCloudModels ?? [],
           customProviders: state.customProviders ?? [],
         };
       },
@@ -261,6 +294,11 @@ export const useSettings = create<SettingsState>()(
         groqEnabled: state.groqEnabled,
         geminiApiKey: state.geminiApiKey,
         geminiEnabled: state.geminiEnabled,
+        opencodeApiKey: state.opencodeApiKey,
+        opencodeEnabled: state.opencodeEnabled,
+        opencodeModels: state.opencodeModels,
+        groqExtraModels: state.groqExtraModels,
+        geminiExtraModels: state.geminiExtraModels,
         systemPrompt: state.systemPrompt,
         webSearch: state.webSearch,
         tavilyApiKey: state.tavilyApiKey,
@@ -272,6 +310,7 @@ export const useSettings = create<SettingsState>()(
         ollamaApiKey: state.ollamaApiKey,
         cloudOllamaEnabled: state.cloudOllamaEnabled,
         ollamaCloudBaseUrl: state.ollamaCloudBaseUrl,
+        ollamaCloudModels: state.ollamaCloudModels,
         customProviders: state.customProviders,
       }),
     }
@@ -284,6 +323,7 @@ export function isApiProviderEnabled(
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled;
   if (apiProvider === "gemini") return settings.geminiEnabled;
+  if (apiProvider === "opencode") return settings.opencodeEnabled;
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled;
   if (apiProvider === "ollama-local") return settings.localEnabled;
   return true;
@@ -302,8 +342,11 @@ export function filterEnabledModelIds(
 export function getEnabledRoutes(settings: SettingsState): ModelInfo[] {
   return [
     ...MODEL_CATALOG,
+    ...(settings.opencodeEnabled ? getOpenCodeModelInfos(settings.opencodeModels) : []),
+    ...(settings.groqEnabled ? getGroqExtraModelInfos(settings.groqExtraModels) : []),
+    ...(settings.geminiEnabled ? getGeminiExtraModelInfos(settings.geminiExtraModels) : []),
     ...getCustomProviderModelInfos(settings.customProviders),
-    ...(settings.cloudOllamaEnabled ? getPresetCloudOllamaModelInfos() : []),
+    ...(settings.cloudOllamaEnabled ? getCloudOllamaModelInfos(settings.ollamaCloudModels) : []),
     ...(settings.localEnabled
       ? settings.availableLocalModels
           .filter((model) => !isRemovedModelName(model.name))
@@ -475,8 +518,6 @@ function findLegacyModelIds(modelId: string): string[] {
     .map(([legacyId]) => legacyId);
 }
 
-const VALID_CLOUD_MODEL_NAMES = new Set(PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name));
-
 export function normalizeModelId(modelId: string): string | null {
   if (isRemovedModelName(modelId)) return null;
 
@@ -484,9 +525,10 @@ export function normalizeModelId(modelId: string): string | null {
   if (isRemovedModelName(normalized)) return null;
   if (isCustomModelId(normalized)) return normalized;
   if (isOllamaModelId(normalized)) return normalized;
-  if (isCloudOllamaModelId(normalized)) {
-    return VALID_CLOUD_MODEL_NAMES.has(getCloudOllamaModelName(normalized)) ? normalized : null;
-  }
+  if (isOpenCodeModelId(normalized)) return normalized;
+  if (normalized.startsWith("groq/")) return normalized;
+  if (normalized.startsWith("gemini")) return normalized;
+  if (isCloudOllamaModelId(normalized)) return normalized;
   return VALID_MODEL_IDS.has(normalized) ? normalized : null;
 }
 
@@ -557,16 +599,20 @@ function removeSelectedRoutes(
   const conversations = Object.fromEntries(
     Object.entries(state.conversations).map(([id, conversation]) => [
       id,
-      {
-        ...conversation,
-        selectedModels: conversation.selectedModels.filter((modelId) => !shouldRemove(modelId)),
+      (() => {
+        const selectedModels = conversation.selectedModels.filter((modelId) => !shouldRemove(modelId));
+        return {
+          ...conversation,
+          chatMode: selectedModels.length === 0 ? "auto" : conversation.chatMode,
+          selectedModels,
         disabledModels: (conversation.disabledModels ?? []).filter((modelId) => !shouldRemove(modelId)),
         focusedModel:
           conversation.focusedModel && shouldRemove(conversation.focusedModel)
             ? null
             : conversation.focusedModel,
         updatedAt: Date.now(),
-      },
+        };
+      })(),
     ])
   );
 
@@ -699,11 +745,19 @@ export const useChat = create<ChatState>()(
           }
           // If focused model was deselected, clear focus
           const focusedModel = c.focusedModel && nextModels.includes(c.focusedModel) ? c.focusedModel : null;
+          const chatMode = nextModels.length === 0 ? "auto" : c.chatMode;
           return {
-            lastUsedModels: nextModels,
+            lastUsedModels: nextModels.length > 0 ? nextModels : s.lastUsedModels,
             conversations: {
               ...s.conversations,
-              [id]: { ...c, selectedModels: nextModels, threads, focusedModel, updatedAt: Date.now() },
+              [id]: {
+                ...c,
+                chatMode,
+                selectedModels: nextModels,
+                threads,
+                focusedModel,
+                updatedAt: Date.now(),
+              },
             },
           };
         }),
@@ -768,16 +822,20 @@ export const useChat = create<ChatState>()(
 
               return [
                 id,
-                {
-                  ...conversation,
-                  selectedModels,
+                (() => {
+                  const chatMode = selectedModels.length === 0 ? "auto" : conversation.chatMode;
+                  return {
+                    ...conversation,
+                    chatMode,
+                    selectedModels,
                   disabledModels: (conversation.disabledModels ?? []).filter(
                     (modelId) => getModel(modelId)?.apiProvider !== apiProvider
                   ),
                   focusedModel,
                   threads: ensureThreadsForSelectedModels(conversation, selectedModels),
                   updatedAt: Date.now(),
-                },
+                  };
+                })(),
               ];
             })
           );

@@ -29,6 +29,8 @@ type ProviderAccessSettings = {
   groqEnabled: boolean;
   geminiApiKey?: string;
   geminiEnabled: boolean;
+  opencodeApiKey?: string;
+  opencodeEnabled: boolean;
   ollamaApiKey?: string;
   cloudOllamaEnabled: boolean;
   localEnabled: boolean;
@@ -57,6 +59,7 @@ export function hasProviderAccessForConsensus(
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled && Boolean(settings.apiKey?.trim());
   if (apiProvider === "gemini") return settings.geminiEnabled && Boolean(settings.geminiApiKey?.trim());
+  if (apiProvider === "opencode") return settings.opencodeEnabled && Boolean(settings.opencodeApiKey?.trim());
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled && Boolean(settings.ollamaApiKey?.trim());
   if (apiProvider === "ollama-local") return settings.localEnabled;
   return false;

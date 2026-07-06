@@ -5,9 +5,12 @@ import {
   MODEL_CATALOG,
   buildModelFamilies,
   getCustomProviderModelInfos,
+  getCloudOllamaModelInfos,
+  getGeminiExtraModelInfos,
+  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModelFamilyId,
-  getPresetCloudOllamaModelInfos,
+  getOpenCodeModelInfos,
   type ModelFamily,
 } from "@/lib/models";
 import { isRemovedModelName } from "@/lib/model-rules";
@@ -31,34 +34,58 @@ export function SingleModelPicker({
   const setSingleModel = useChat((s) => s.setSingleModel);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
+  const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
+  const ollamaCloudModels = useSettings((s) => s.ollamaCloudModels);
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const customProviders = useSettings((s) => s.customProviders);
+  const opencodeModels = useSettings((s) => s.opencodeModels);
+  const groqExtraModels = useSettings((s) => s.groqExtraModels);
+  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
-    () => ({ groqEnabled, geminiEnabled, cloudOllamaEnabled, localEnabled }),
-    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled]
+    () => ({ groqEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled }),
+    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const families = useMemo(() => {
     const baseRoutes = MODEL_CATALOG.filter((route) =>
       isApiProviderEnabled(route.apiProvider, enabledSettings)
     );
-    const hostedOllamaRoutes = cloudOllamaEnabled ? getPresetCloudOllamaModelInfos() : [];
+    const hostedOllamaRoutes = cloudOllamaEnabled ? getCloudOllamaModelInfos(ollamaCloudModels) : [];
     const localRoutes = localEnabled
       ? availableLocalModels
           .filter((model) => !isRemovedModelName(model.name))
           .map((model) => getLocalOllamaModelInfo(model.name))
       : [];
     const customRoutes = getCustomProviderModelInfos(customProviders);
+    const opencodeRoutes = opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : [];
+    const groqExtraRoutes = groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : [];
+    const geminiExtraRoutes = geminiEnabled ? getGeminiExtraModelInfos(geminiExtraModels) : [];
     return buildModelFamilies([
       ...baseRoutes,
+      ...opencodeRoutes,
+      ...groqExtraRoutes,
+      ...geminiExtraRoutes,
       ...hostedOllamaRoutes,
       ...localRoutes,
       ...customRoutes,
     ]);
-  }, [enabledSettings, cloudOllamaEnabled, localEnabled, availableLocalModels, customProviders]);
+  }, [
+    enabledSettings,
+    cloudOllamaEnabled,
+    localEnabled,
+    availableLocalModels,
+    customProviders,
+    opencodeEnabled,
+    opencodeModels,
+    groqEnabled,
+    groqExtraModels,
+    geminiEnabled,
+    geminiExtraModels,
+    ollamaCloudModels,
+  ]);
 
   if (!conv) return null;
 
