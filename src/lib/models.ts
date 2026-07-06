@@ -186,15 +186,6 @@ export const OPENCODE_KNOWN_MODELS: Record<
     free: true,
     bestFor: "General chat",
   },
-  "north-mini-code-free": {
-    label: "North Mini Code Free",
-    shortLabel: "North Mini Code",
-    provider: "opencode",
-    category: "Coding",
-    context: 128000,
-    free: true,
-    bestFor: "Code generation",
-  },
   "nemotron-3-ultra-free": {
     label: "Nemotron 3 Ultra Free",
     shortLabel: "Nemotron 3 Ultra",

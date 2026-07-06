@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { OPENCODE_KNOWN_MODELS } from "@/lib/models";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -25,11 +26,22 @@ type RequestBody = {
 const GROQ_URL    = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENCODE_URLS = [
+  // api.opencode.ai currently returns a fake HTTP 200 with a plain-text
+  // "Not Found" body for these paths instead of a real 404, so it must not
+  // be tried first (see isLikelyStreamResponse below for the safety net).
+  "https://opencode.ai/zen/v1/chat/completions",
   "https://api.opencode.ai/zen/v1/chat/completions",
   "https://api.opencode.ai/v1/chat/completions",
-  "https://opencode.ai/zen/v1/chat/completions",
 ] as const;
 const OPENCODE_PREFIX = "opencode/";
+
+// Guards against endpoints that return a "fake" HTTP 200 with a plain-text
+// error body (e.g. "Not Found") instead of a real streaming response. A real
+// chat-completions stream is always SSE or JSON, never bare text/html.
+function isLikelyStreamResponse(res: Response): boolean {
+  const contentType = res.headers.get("content-type") || "";
+  return /event-stream|json/i.test(contentType);
+}
 const OLLAMA_PREFIX = "ollama/";
 const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
 const CUSTOM_PREFIX = "custom/";
@@ -525,15 +537,32 @@ export async function POST(req: NextRequest) {
     let lastError: string | null = null;
     for (const url of OPENCODE_URLS) {
       try {
+        // Only include reasoning_effort for models that support it
+        const modelInfo = OPENCODE_KNOWN_MODELS[opencodeModel];
+        const requestBody: any = { model: opencodeModel, messages, stream: true };
+        if (modelInfo?.thinking) {
+          // reasoning_effort asks reasoning-capable models (e.g. DeepSeek V4) to
+          // think only as much as the prompt warrants instead of always running
+          // a long chain-of-thought.
+          requestBody.reasoning_effort = "low";
+        }
+        
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${opencodeKey}` },
-          body: JSON.stringify({ model: opencodeModel, messages, stream: true }),
+          body: JSON.stringify(requestBody),
         });
 
-        // Retry with the next endpoint only for transient upstream/server failures.
+        // Retry with the next endpoint for transient server failures, and also
+        // for a "fake 200" — some stale OpenCode routes return HTTP 200 with a
+        // plain-text "Not Found" body instead of a real error, which otherwise
+        // silently produces a blank chat response.
         if (res.status >= 500) {
           lastError = `HTTP ${res.status} from ${url}`;
+          continue;
+        }
+        if (res.status === 200 && !isLikelyStreamResponse(res)) {
+          lastError = `Unexpected non-stream response from ${url}`;
           continue;
         }
 
@@ -595,8 +624,101 @@ function streamOpenAiCompatible(upstreamRes: Response): Response {
       const reader = upstreamRes.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let doneSent = false;
+      let inThinking = false;
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+
+      const readTextParts = (value: unknown): string => {
+        if (typeof value === "string") return value;
+        if (!Array.isArray(value)) return "";
+        return value
+          .map((part) => {
+            if (typeof part === "string") return part;
+            if (!part || typeof part !== "object") return "";
+            const p = part as { type?: string; text?: string };
+            if (typeof p.text === "string") return p.text;
+            return p.type === "text" && typeof p.text === "string" ? p.text : "";
+          })
+          .join("");
+      };
+
+      const forwardOpenAiLikeChunk = (json: unknown) => {
+        if (!json || typeof json !== "object") return;
+        const obj = json as {
+          choices?: Array<{
+            delta?: {
+              content?: unknown;
+              text?: unknown;
+              reasoning?: unknown;
+              reasoning_content?: unknown;
+            };
+            message?: { content?: unknown };
+            text?: unknown;
+            finish_reason?: string | null;
+          }>;
+          usage?: unknown;
+        };
+
+        const choice = obj.choices?.[0];
+        const delta = choice?.delta;
+
+        const contentText = readTextParts(delta?.content);
+        const textDelta = readTextParts(delta?.text);
+        const reasoningText = readTextParts(delta?.reasoning_content) || readTextParts(delta?.reasoning);
+        const fallbackMessage =
+          !contentText && !textDelta && !reasoningText ? readTextParts(choice?.message?.content) : "";
+        const fallbackText =
+          !contentText && !textDelta && !reasoningText && !fallbackMessage ? readTextParts(choice?.text) : "";
+
+        // Close the thinking block once real content starts arriving.
+        if (inThinking && (contentText || textDelta || fallbackMessage || fallbackText)) {
+          send({ type: "delta", text: "</think>\n" });
+          inThinking = false;
+        }
+
+        // Wrap reasoning tokens in <think> tags so the UI hides them behind a
+        // collapsible "thinking" section instead of showing raw chain-of-thought.
+        if (reasoningText) {
+          if (!inThinking) {
+            send({ type: "delta", text: "<think>" });
+            inThinking = true;
+          }
+          send({ type: "delta", text: reasoningText });
+        }
+
+        if (contentText) send({ type: "delta", text: contentText });
+        if (textDelta) send({ type: "delta", text: textDelta });
+        if (fallbackMessage) send({ type: "delta", text: fallbackMessage });
+        if (fallbackText) send({ type: "delta", text: fallbackText });
+
+        if (obj.usage) send({ type: "usage", usage: obj.usage });
+        const finish = choice?.finish_reason;
+        if (finish) {
+          if (inThinking) {
+            send({ type: "delta", text: "</think>\n" });
+            inThinking = false;
+          }
+          send({ type: "finish", reason: finish });
+        }
+      };
+
+      const processPayload = (payload: string) => {
+        const trimmed = payload.trim();
+        if (!trimmed) return;
+        if (trimmed === "[DONE]") {
+          if (!doneSent) {
+            send({ type: "done" });
+            doneSent = true;
+          }
+          return;
+        }
+        try {
+          forwardOpenAiLikeChunk(JSON.parse(trimmed));
+        } catch {
+          // ignore malformed chunks
+        }
+      };
 
       try {
         while (true) {
@@ -607,23 +729,28 @@ function streamOpenAiCompatible(upstreamRes: Response): Response {
           while ((idx = buffer.indexOf("\n")) >= 0) {
             const line = buffer.slice(0, idx).trim();
             buffer = buffer.slice(idx + 1);
-            if (!line || !line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (payload === "[DONE]") { send({ type: "done" }); continue; }
-            try {
-              const json = JSON.parse(payload);
-              const delta = json?.choices?.[0]?.delta?.content;
-              if (typeof delta === "string" && delta.length > 0) send({ type: "delta", text: delta });
-              if (json?.usage) send({ type: "usage", usage: json.usage });
-              const finish = json?.choices?.[0]?.finish_reason;
-              if (finish) send({ type: "finish", reason: finish });
-            } catch { /* ignore */ }
+            if (!line) continue;
+            if (line.startsWith("data:")) {
+              processPayload(line.slice(5));
+              continue;
+            }
+            if (line.startsWith("event:") || line.startsWith(":")) continue;
+            if (line.startsWith("{")) {
+              // Some providers stream newline-delimited JSON instead of SSE.
+              processPayload(line);
+            }
           }
+        }
+        if (buffer.trim()) {
+          const last = buffer.trim();
+          if (last.startsWith("data:")) processPayload(last.slice(5));
+          else if (last.startsWith("{")) processPayload(last);
         }
       } catch (err: unknown) {
         send({ type: "error", message: err instanceof Error ? err.message : String(err) });
       } finally {
-        send({ type: "done" });
+        if (inThinking) send({ type: "delta", text: "</think>\n" });
+        if (!doneSent) send({ type: "done" });
         controller.close();
       }
     },

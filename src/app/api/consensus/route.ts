@@ -31,6 +31,8 @@ type RequestBody = {
   candidateModels?: string[];
   fallbackModels?: string[];
   moderatorModels?: string[];
+  judgeModel?: string;
+  judgeFallbackModels?: string[];
   apiKey?: string;
   geminiApiKey?: string;
   opencodeApiKey?: string;
@@ -39,6 +41,22 @@ type RequestBody = {
   ollamaCloudBaseUrl?: string;
   webSearch?: boolean;
 };
+
+const JUDGE_CRITERIA = ["accuracy", "relevance", "completeness", "clarity", "citations"] as const;
+type JudgeCriterion = (typeof JUDGE_CRITERIA)[number];
+type JudgeRanking = {
+  model: string;
+  scores?: Partial<Record<JudgeCriterion, number>>;
+  overall?: number;
+  rationale?: string;
+};
+type JudgeResult = {
+  model: string;
+  rankings: JudgeRanking[];
+  winner?: string;
+  confidence?: "high" | "medium" | "low";
+};
+
 
 type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq";
 type QualityMode = "quick" | "deep";
@@ -66,15 +84,16 @@ class UpstreamError extends Error {
   }
 }
 
-const MODEL_NAME_RULES = `Use only short model names such as Gemini 2.5, Gemma 4, Llama 4, Cogito, Nemotron, or GPT.
-Never write "Model 1", "Model 2", or full model IDs.`;
+const MODEL_NAME_RULES = `Refer to sources only by their short model names (e.g. Gemini 2.5, Gemma 4, Llama 4, Cogito, Nemotron, GPT).
+Never write "Model 1", "Model 2", "the first model", or raw model IDs. Never invent names that were not provided.`;
 
-const QUALITY_RUBRIC = `Use this quality rubric before deciding:
-- Correctness: prefer answers that are factual, internally consistent, and honest about uncertainty.
-- Completeness: include the parts needed to directly satisfy the user.
-- Disagreement handling: call out meaningful conflicts between models instead of hiding them.
-- Missing context: say what cannot be known from the provided answers.
-- Final recommendation: give one clear answer, not a vote tally.`;
+const QUALITY_RUBRIC = `Judge every candidate answer against this rubric before you decide:
+- Correctness: reward claims that are factual, internally consistent, and honest about uncertainty; penalise confident guesses.
+- Evidence: prefer answers grounded in the supplied web context or verifiable specifics over unsupported assertions.
+- Completeness: the answer must directly and fully satisfy what the user asked — no partial coverage.
+- Disagreement handling: surface material conflicts between sources explicitly; never paper over them.
+- Missing context: state plainly what cannot be determined from the material provided.
+- Decisiveness: commit to one clear recommendation. Do not hedge with a vote tally or "it depends" when the evidence favours an answer.`;
 
 function temporalGrounding(): string {
   const currentDate = new Date().toISOString().slice(0, 10);
@@ -103,17 +122,21 @@ const DEEP_SECTIONS = `First output the synthesized answer. Then output "---" on
 **Missing context**
 **Model notes**`;
 
-function synthesisPrompt(mode: QualityMode): string {
+function synthesisPrompt(mode: QualityMode, solo: boolean): string {
   const deepInstruction =
     mode === "deep"
-      ? `Deep answer mode is enabled. Claim-check the most important statements against only the supplied model answers, identify unsupported or conflicting claims, and explain why the winning answer won.`
-      : `Quick answer mode is enabled. Be concise, but still use the rubric.`;
+      ? `Deep answer mode is enabled. Claim-check the most important statements against only the supplied answers, flag unsupported or conflicting claims, and explain precisely why the winning answer beat the alternatives.`
+      : `Quick answer mode is enabled. Be concise, but still apply the full rubric.`;
 
-  return `You are a careful consensus synthesizer.
+  const roleBlock = solo
+    ? `You are a rigorous self-review synthesizer. Only one model answer is available, so your job is to stress-test it: verify its claims, correct errors, fill gaps, and return a stronger, trustworthy final answer. Do not fabricate agreement from other models that do not exist. Be explicit that this is a single-source answer and lower your confidence accordingly.`
+    : `You are a careful consensus synthesizer. Compare the answers, resolve conflicts on the merits, and produce one superior answer. Never copy a single model's answer wholesale — synthesize.`;
+
+  return `${roleBlock}
 ${MODEL_NAME_RULES}
 ${temporalGrounding()}
-Do not copy one model's full answer. Compare, summarize, decide, and explain the logic.
 ${QUALITY_RUBRIC}
+If a judge scorecard is provided, treat it as advisory evidence: weigh it, but override it when the underlying answers clearly contradict the judge.
 ${deepInstruction}
 
 ${mode === "deep" ? DEEP_SECTIONS : QUICK_SECTIONS}`;
@@ -122,29 +145,30 @@ ${mode === "deep" ? DEEP_SECTIONS : QUICK_SECTIONS}`;
 function councilPositionPrompt(mode: QualityMode): string {
   const deepInstruction =
     mode === "deep"
-      ? "Deep answer mode is enabled. Explicitly flag unsupported claims, weak assumptions, missing evidence, and confidence-impacting disagreements."
-      : "Quick answer mode is enabled. Keep the note short while naming the most important strength and risk.";
+      ? "Deep mode: explicitly flag unsupported claims, weak assumptions, missing evidence, and any disagreement that would change the final answer."
+      : "Quick mode: keep the note short while naming the single most important strength and the single biggest risk.";
 
-  return `You are one member of a model council.
+  return `You are one member of an expert model council debating to reach the best possible answer.
 ${temporalGrounding()}
-Use your short model name when referring to yourself.
-Write visible public debate notes for the user. Do not include hidden chain-of-thought or private reasoning.
-Keep notes concise and concrete. Name agreements and disagreements with short model names only.
-Use the quality rubric: correctness, completeness, uncertainty, disagreements, missing context, and final recommendation.
+Refer to yourself and others only by short model names.
+Write visible public debate notes for the user — clear, concrete, and defensible. Never include hidden chain-of-thought or private scratch reasoning; state conclusions and the evidence for them.
+Argue in good faith: concede points that are correct, and push hard on points that are wrong or unsupported. Cite the specific claim you are addressing.
+Apply the rubric: correctness, evidence, completeness, uncertainty, disagreements, and missing context.
 ${deepInstruction}
-Do not produce the final answer alone.`;
+Do not write the final answer alone — that is the moderator's job.`;
 }
 
 function councilSynthesisPrompt(mode: QualityMode): string {
   const deepInstruction =
     mode === "deep"
-      ? `Deep answer mode is enabled. Use the council notes to claim-check important statements and explain why the final answer beat plausible alternatives.`
-      : `Quick answer mode is enabled. Keep the final verdict concise.`;
+      ? `Deep mode: use the council notes and judge scorecard to claim-check the key statements and explain why the final answer beat the strongest alternative.`
+      : `Quick mode: keep the final verdict concise but decisive.`;
 
-  return `You are the final moderator of a model council.
+  return `You are the final moderator of an expert model council. You have the last word.
 ${MODEL_NAME_RULES}
 ${temporalGrounding()}
-Synthesize the council positions and the original model answers. Do not copy one model's full answer.
+Weigh the council debate, the original answers, and any judge scorecard, then deliver one authoritative answer. Do not copy any single member's answer — synthesize the strongest, best-supported result.
+Resolve the debate on the merits, not by majority vote. If the council was wrong or missed something, correct it.
 ${QUALITY_RUBRIC}
 ${deepInstruction}
 
@@ -160,19 +184,19 @@ const COUNCIL_ROUNDS: CouncilRound[] = [
     id: "opening",
     title: "Opening",
     instruction:
-      "State which original answer is strongest, what it gets right, and what important point it misses.",
+      "State which original answer is strongest and why, what it gets right, and the single most important point it misses. Take a clear position.",
   },
   {
     id: "critique",
     title: "Critique",
     instruction:
-      "Read the opening notes. Challenge weak assumptions, unsupported claims, or missing details from other models.",
+      "Read the opening notes. Challenge the weakest assumption, unsupported claim, or missing detail from another member by name. Concede any point where they were right.",
   },
   {
     id: "convergence",
     title: "Convergence",
     instruction:
-      "State what you now agree on, what remains disputed, and what the final answer should include.",
+      "State what the council now agrees on, what remains genuinely disputed, and draft the key points the final answer must include. Be specific and actionable.",
   },
 ];
 
@@ -492,15 +516,144 @@ async function streamTextEvents(
   await pipeStreamingText(send, opened);
 }
 
-async function streamText(body: RequestBody, modelId: string, messages: ChatMessage[]): Promise<Response> {
-  const opened = await openStreamingUpstream(body, modelId, messages);
-  return createNdjsonResponse((send) => pipeStreamingText(send, opened));
+function judgePrompt(): string {
+  return `You are a strict, impartial evaluation judge scoring a panel of AI answers to the same question. You do not write your own answer.
+${MODEL_NAME_RULES}
+${temporalGrounding()}
+Score each answer independently on a 0-10 integer scale for these criteria:
+- accuracy: factual correctness and internal consistency.
+- relevance: how directly it addresses the user's actual question.
+- completeness: coverage of everything the question needs.
+- clarity: how clear, well-structured, and easy to act on it is.
+- citations: use of the supplied web context / verifiable specifics (score 0 if none were needed and none given).
+Reward answers grounded in evidence; penalise confident but unsupported claims. Do not favour length. Be discriminating — avoid giving every answer the same score.
+Set "overall" as your holistic 0-10 rating (not necessarily the average). Pick the single best answer as "winner". Set "confidence" to how sure you are the winner is genuinely best.
+Return ONLY valid minified JSON — no markdown, no code fences, no commentary — exactly matching this shape:
+{"rankings":[{"model":"<short name>","scores":{"accuracy":0,"relevance":0,"completeness":0,"clarity":0,"citations":0},"overall":0,"rationale":"one concise sentence"}],"winner":"<short name>","confidence":"high|medium|low"}`;
 }
 
-function synthesisMessages(body: RequestBody): ChatMessage[] {
+function judgeMessages(body: RequestBody): ChatMessage[] {
   return [
-    { role: "system", content: synthesisPrompt(qualityModeFor(body.qualityMode)) },
+    { role: "system", content: judgePrompt() },
     { role: "user", content: formatResponseBlock(body.prompt, body.responses, body.webSearch) },
+  ];
+}
+
+function clampScore(value: unknown): number | undefined {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return undefined;
+  return Math.max(0, Math.min(10, Math.round(num * 10) / 10));
+}
+
+function parseJudge(raw: string, model: string): JudgeResult | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const obj = data as { rankings?: unknown; winner?: unknown; confidence?: unknown };
+  if (!Array.isArray(obj.rankings)) return null;
+
+  const rankings: JudgeRanking[] = [];
+  for (const entry of obj.rankings) {
+    const row = entry as { model?: unknown; scores?: unknown; overall?: unknown; rationale?: unknown };
+    if (typeof row.model !== "string" || !row.model.trim()) continue;
+    const scores: Partial<Record<JudgeCriterion, number>> = {};
+    const rawScores = (row.scores ?? {}) as Record<string, unknown>;
+    for (const criterion of JUDGE_CRITERIA) {
+      const score = clampScore(rawScores[criterion]);
+      if (score !== undefined) scores[criterion] = score;
+    }
+    rankings.push({
+      model: row.model.trim(),
+      ...(Object.keys(scores).length > 0 ? { scores } : {}),
+      ...(clampScore(row.overall) !== undefined ? { overall: clampScore(row.overall) } : {}),
+      ...(typeof row.rationale === "string" && row.rationale.trim()
+        ? { rationale: row.rationale.trim() }
+        : {}),
+    });
+  }
+  if (rankings.length === 0) return null;
+
+  const confidence =
+    obj.confidence === "high" || obj.confidence === "medium" || obj.confidence === "low"
+      ? obj.confidence
+      : undefined;
+
+  return {
+    model,
+    rankings,
+    ...(typeof obj.winner === "string" && obj.winner.trim() ? { winner: obj.winner.trim() } : {}),
+    ...(confidence ? { confidence } : {}),
+  };
+}
+
+function formatJudgeBlock(judge: JudgeResult): string {
+  const lines = judge.rankings.map((ranking) => {
+    const parts = JUDGE_CRITERIA.map((criterion) =>
+      ranking.scores?.[criterion] !== undefined ? `${criterion} ${ranking.scores[criterion]}` : null
+    ).filter(Boolean);
+    const overall = ranking.overall !== undefined ? ` | overall ${ranking.overall}/10` : "";
+    const rationale = ranking.rationale ? ` — ${ranking.rationale}` : "";
+    return `- ${ranking.model}: ${parts.join(", ")}${overall}${rationale}`;
+  });
+  const header = [
+    "Independent judge scorecard (advisory, 0-10):",
+    judge.winner ? `Judge's pick: ${judge.winner}` : null,
+    judge.confidence ? `Judge confidence: ${judge.confidence}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return `${header}\n${lines.join("\n")}`;
+}
+
+// Runs the judge (non-streaming) over the panel answers. Non-fatal: returns null
+// if no judge model succeeds or the output cannot be parsed, so synthesis proceeds.
+async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeResult | null> {
+  if (body.responses.length === 0) return null;
+  const judgeModels = unique([
+    body.judgeModel,
+    ...(body.judgeFallbackModels ?? []),
+    body.consensusModel,
+    ...(body.fallbackModels ?? []),
+  ]);
+  if (judgeModels.length === 0) return null;
+
+  const messages = judgeMessages(body);
+  for (const modelId of judgeModels) {
+    try {
+      const raw = await generateText(body, modelId, messages);
+      const parsed = parseJudge(raw, getModelAlias(modelId));
+      if (parsed) {
+        send({
+          type: "judge",
+          model: parsed.model,
+          rankings: parsed.rankings,
+          winner: parsed.winner,
+          confidence: parsed.confidence,
+        });
+        return parsed;
+      }
+    } catch {
+      // try next judge model
+    }
+  }
+  return null;
+}
+
+function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMessage[] {
+  const solo = body.responses.length < 2;
+  const block = formatResponseBlock(body.prompt, body.responses, body.webSearch);
+  const content = judge ? `${block}\n\n${formatJudgeBlock(judge)}` : block;
+  return [
+    { role: "system", content: synthesisPrompt(qualityModeFor(body.qualityMode), solo) },
+    { role: "user", content },
   ];
 }
 
@@ -508,16 +661,25 @@ async function runSingle(body: RequestBody): Promise<Response> {
   const models = unique([body.consensusModel, ...(body.fallbackModels ?? [])]);
   if (models.length === 0) throw new UpstreamError("Missing consensusModel", 400);
 
-  let lastError: UpstreamError | null = null;
-  for (const model of models) {
-    try {
-      return await streamText(body, model, synthesisMessages(body));
-    } catch (err) {
-      lastError = err instanceof UpstreamError ? err : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
-    }
-  }
+  return createNdjsonResponse(async (send) => {
+    const judge = await maybeRunJudge(send, body);
+    const messages = synthesisMessages(body, judge);
 
-  throw lastError ?? new UpstreamError("Consensus failed.", 502);
+    let lastError: UpstreamError | null = null;
+    for (const model of models) {
+      try {
+        await streamTextEvents(send, body, model, messages);
+        return;
+      } catch (err) {
+        lastError =
+          err instanceof UpstreamError
+            ? err
+            : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
+      }
+    }
+
+    throw lastError ?? new UpstreamError("Consensus failed.", 502);
+  });
 }
 
 function formatCouncilHistory(notes: CouncilNote[]): string {
@@ -657,11 +819,13 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       }
     }
 
+    const judge = await maybeRunJudge(send, body);
     const councilBlock = [
       baseBlock,
       "",
       "Visible council debate:",
       ...allNotes.map((note) => `\n--- ${note.roundTitle} / ${note.alias} ---\n${note.content}`),
+      ...(judge ? ["", formatJudgeBlock(judge)] : []),
     ].join("\n");
 
     send({ type: "round_start", round: "synthesis", title: "Final synthesis" });

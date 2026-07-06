@@ -6,7 +6,7 @@ import { getModel } from "@/lib/models";
 import { API_PROVIDERS, PROVIDERS } from "@/lib/providers";
 import { Markdown } from "./Markdown";
 import { ProviderIcon } from "./ProviderIcon";
-import { AlertCircle, Loader2, Focus, Square, Copy, Check, GripVertical, ChevronDown, ChevronRight, Brain, Globe, RotateCcw } from "lucide-react";
+import { AlertCircle, Focus, Square, Copy, Check, GripVertical, ChevronDown, ChevronRight, Brain, Globe, RotateCcw } from "lucide-react";
 import { abortModel, streamModel } from "@/lib/chat-client";
 import { streamDraftKey, useStreamDrafts } from "@/lib/stream-drafts";
 
@@ -72,6 +72,19 @@ function StreamingThinkingBlock({ text }: { text: string }) {
   );
 }
 
+function TypingIndicator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[var(--fg-muted)]">
+      <span className="typing-dots" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="text-[13px]">{label}</span>
+    </div>
+  );
+}
+
 function StreamingContent({ content, pendingLabel }: { content: string; pendingLabel: string }) {
   const { thinking, answer } = parseThinking(content);
 
@@ -83,11 +96,7 @@ function StreamingContent({ content, pendingLabel }: { content: string; pendingL
           {answer}
         </div>
       )}
-      {!answer && (
-        <div className="flex items-center gap-2 text-[var(--fg-muted)]">
-          <Loader2 size={14} className="animate-spin" /> {pendingLabel}
-        </div>
-      )}
+      {!answer && <TypingIndicator label={pendingLabel} />}
     </>
   );
 }
@@ -97,12 +106,14 @@ function MessageBubble({
   convId,
   modelId,
   compact,
+  newTurn,
   onRetry,
 }: {
   msg: Message;
   convId: string;
   modelId: string;
   compact: boolean;
+  newTurn: boolean;
   onRetry: () => void;
 }) {
   const isUser = msg.role === "user";
@@ -136,7 +147,12 @@ function MessageBubble({
   return (
     <div
       data-role={msg.role}
-      className={"group relative rounded-lg border text-sm " + (compact ? "px-2.5 py-1.5" : "px-3 py-2")}
+      className={
+        "msg-in group relative border text-sm shadow-sm transition-colors " +
+        (compact ? "px-2.5 py-1.5 " : "px-3.5 py-2.5 ") +
+        (isUser ? "rounded-2xl rounded-tr-sm " : "rounded-2xl rounded-tl-sm ") +
+        (newTurn ? "mt-4 " : "")
+      }
       style={{
         background: isUser ? "var(--user-bubble)" : "var(--asst-bubble)",
         borderColor: isUser ? "var(--user-border)" : "var(--asst-border)",
@@ -172,9 +188,7 @@ function MessageBubble({
               {thinking && <ThinkingBlock text={thinking} />}
               {answer && <Markdown source={answer} />}
               {!answer && msg.pending && (
-                <div className="flex items-center gap-2 text-[var(--fg-muted)]">
-                  <Loader2 size={14} className="animate-spin" /> {pendingLabel}
-                </div>
+                <TypingIndicator label={pendingLabel} />
               )}
             </>
           );
@@ -503,20 +517,35 @@ export function ModelColumn({
       {/* Messages */}
       <div ref={scrollContainerRef} onScroll={handleScroll} className={"flex-1 overflow-y-auto " + (compact ? "space-y-2 p-2" : "space-y-3 p-3")}>
         {thread.messages.length === 0 && (
-          <div className="pt-8 text-center text-xs text-[var(--fg-subtle)]">
-            Send a prompt to see this model respond.
+          <div className="flex flex-col items-center justify-center gap-2 pt-14 text-center">
+            {info && (
+              <div className="opacity-40">
+                <ProviderIcon provider={info.provider} size={32} />
+              </div>
+            )}
+            <div className="text-xs font-medium text-[var(--fg-muted)]">
+              {info?.label ?? modelId}
+            </div>
+            <div className="max-w-[220px] text-xs text-[var(--fg-subtle)]">
+              Send a prompt to see this model respond.
+            </div>
           </div>
         )}
-        {thread.messages.map((m) => (
-          <MessageBubble
-            key={m.id}
-            msg={m}
-            convId={conv.id}
-            modelId={modelId}
-            compact={compact}
-            onRetry={regenerate}
-          />
-        ))}
+        {thread.messages.map((m, i) => {
+          const prev = thread.messages[i - 1];
+          const newTurn = i > 0 && m.role === "user" && prev?.role !== "user";
+          return (
+            <MessageBubble
+              key={m.id}
+              msg={m}
+              convId={conv.id}
+              modelId={modelId}
+              compact={compact}
+              newTurn={newTurn}
+              onRetry={regenerate}
+            />
+          );
+        })}
         {/* Dynamic spacer: only as tall as needed so latest user msg can reach top.
             Shrinks as assistant response grows; disappears once content fills view. */}
         <div ref={spacerRef} aria-hidden style={{ height: 0 }} />

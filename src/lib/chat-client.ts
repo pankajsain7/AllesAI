@@ -101,7 +101,7 @@ function formatChatError(raw: string, status: number, statusText: string, modelI
 
   if (isSubscriptionError(parsed)) {
     if (modelId === "ollama-cloud/qwen3-coder:480b") {
-      return "Qwen3 Coder 480B on Ollama requires a paid subscription tier. Choose a free alternative (for example Qwen3 32B on Groq or North Mini Code on OpenCode).";
+      return "Qwen3 Coder 480B on Ollama requires a paid subscription tier. Choose a free alternative (for example Qwen3 32B on Groq or Big Pickle on OpenCode)."
     }
     const provider = isCloudOllamaModelId(modelId) || isOllamaModelId(modelId)
       ? "Ollama"
@@ -318,6 +318,16 @@ type SearchApiResponse = {
   }>;
   error?: string;
 };
+
+function promptNeedsFreshInfo(prompt: string) {
+  return /\b(latest|today|current|currently|recent|news|updates?|new|now|this week|this month|breaking|headlines|202[5-9])\b/i.test(prompt);
+}
+
+function getWebSearchMode(prompt: string, settings: ReturnType<typeof useSettings.getState>) {
+  if (settings.webSearch) return "manual" as const;
+  if (promptNeedsFreshInfo(prompt)) return "auto" as const;
+  return "off" as const;
+}
 
 async function fetchWebContext(prompt: string, signal: AbortSignal): Promise<WebContext> {
   const settings = useSettings.getState();
@@ -650,28 +660,37 @@ function streamTargets(
   settings = useSettings.getState(),
   existingMsgIds?: Map<string, string>
 ) {
+  const webSearchMode = getWebSearchMode(prompt, settings);
+  const effectiveWebSearch = webSearchMode !== "off";
   const state = useChat.getState();
   const assistantMsgIds = new Map<string, string>();
   for (const modelId of targets) {
     const existing = existingMsgIds?.get(modelId);
-    const msgId = existing ?? state.startAssistant(convId, modelId, settings.webSearch ? "searching" : "thinking");
-    if (existing && settings.webSearch) state.setAssistantStatus(convId, modelId, msgId, "searching");
+    const msgId = existing ?? state.startAssistant(convId, modelId, effectiveWebSearch ? "searching" : "thinking");
+    if (existing && effectiveWebSearch) state.setAssistantStatus(convId, modelId, msgId, "searching");
     assistantMsgIds.set(modelId, msgId);
   }
 
   void (async () => {
     let webContext: WebContext | undefined;
-    if (settings.webSearch) {
+    if (effectiveWebSearch) {
       try {
         webContext = await fetchWebContext(prompt, ctrl.signal);
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        const message = err instanceof Error ? err.message : String(err);
-        for (const modelId of targets) {
-          const msgId = assistantMsgIds.get(modelId) ?? useChat.getState().startAssistant(convId, modelId);
-          useChat.getState().failAssistant(convId, modelId, msgId, `Web search failed: ${message}`);
+        if (webSearchMode === "auto") {
+          for (const modelId of targets) {
+            const msgId = assistantMsgIds.get(modelId);
+            if (msgId) useChat.getState().setAssistantStatus(convId, modelId, msgId, "thinking");
+          }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          for (const modelId of targets) {
+            const msgId = assistantMsgIds.get(modelId) ?? useChat.getState().startAssistant(convId, modelId);
+            useChat.getState().failAssistant(convId, modelId, msgId, `Web search failed: ${message}`);
+          }
+          return;
         }
-        return;
       }
     }
 

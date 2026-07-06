@@ -13,6 +13,16 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-07-06] Auto-pick consensus synthesizer by context window, remove manual model selector
+**Changed:** `src/components/ConsensusButton.tsx`
+**Why:** User wanted the consensus model dropdown removed; instead automatically use the top 2 available large-context models (e.g. Gemma 4 + Gemini 2.5) as the synthesizer chain, judged via the existing LLM-as-judge stage, with 1 model being sufficient if only one is available.
+**Summary:** `consensusChoices` is now sorted by `model.context` descending (largest context window first) instead of following a fixed priority order; `synthesizerChoices` takes the top 2 as the primary + fallback synthesizer, no longer reading/writing the user's `consensusModel` setting. Replaced the `<select>` dropdown in the consensus/council modal with a static badge row showing the auto-picked primary and fallback model(s). Verified with `next build`.
+
+## [2026-07-06] Add LLM-as-judge, stronger consensus/council prompts, and robust fallback
+**Changed:** `src/app/api/consensus/route.ts`, `src/lib/model-rules.ts`, `src/lib/store.ts`, `src/components/ConsensusButton.tsx`, `src/components/SharedResultsLane.tsx`
+**Why:** Improve consensus/council answer quality — add a dedicated judge, sharpen prompting, size the panels sensibly (consensus 2-3, council 4-5), and degrade gracefully when the user has few or no API keys.
+**Summary:** Added a dedicated LLM-as-judge stage that scores each panel answer as strict JSON (accuracy/relevance/completeness/clarity/citations, overall, winner, confidence) with graceful non-fatal fallback and prose-scorecard backup; the judge scorecard now streams via a new `judge` NDJSON event, is stored on `SharedResult.judge`, and renders as a table in both consensus and council results. Rewrote the synthesizer, council member, moderator, and round prompts to be sharper and evidence-first, and added a single-source self-review synthesizer for solo runs. Council now seats the user's own answering models first (then backfills from the priority bench, capped at 5) so it works with whatever keys are present; consensus now allows a solo run with one answer; the judge prefers a non-panel model; and empty-state messages point users to add a provider key. Verified with `next build`.
+
 ## [2026-07-06] Enforce ponytail-first workflow for all agent tasks
 **Changed:** `AGENTS.md`, `.github/copilot-instructions.md`, `instructions/agent-behavior.md`
 **Why:** User requested ponytail lazy-code skill to be applied every time before writing code or making implementation decisions.
@@ -33,7 +43,7 @@ This file is maintained by the agent. After every task that changes code, config
 ## [2026-07-06] Finish OpenCode Zen provider integration (plan item 1)
 **Changed:** `src/lib/providers.ts`, `src/lib/models.ts`, `src/lib/store.ts`, `src/lib/model-rules.ts`, `src/lib/chat-client.ts`, `src/app/api/chat/route.ts`, `src/components/ProviderIcon.tsx`, `src/components/SettingsDialog.tsx`, `src/components/ModelPicker.tsx`, `src/components/SingleModelPicker.tsx`, `src/components/Composer.tsx`, `src/components/HeroComposer.tsx`, `src/app/page.tsx`
 **Why:** `src/app/api/consensus/route.ts` and `ConsensusButton.tsx` already referenced OpenCode (`opencodeApiKey`/`opencodeEnabled`) but the rest of the app (provider catalog, settings store, chat route, pickers, UI) never defined them, so the project failed to type-check.
-**Summary:** Added `opencode` as a real `ProviderKey`/`ApiProviderKey`, added the 5 free OpenCode Zen models (Big Pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, North Mini Code Free, Nemotron 3 Ultra Free) to the model catalog, added `opencodeApiKey`/`opencodeEnabled` to the settings store (persist v6 migration), added OpenCode access checks to `model-rules.ts`, added a streaming `opencode/` route in `/api/chat` (mirrors the consensus route's Zen gateway call), wired the API key through `chat-client.ts`, added a Settings toggle + key input, and included OpenCode in `ModelPicker`/`SingleModelPicker`/`Composer`/`HeroComposer`/`page.tsx` enabled-provider plumbing. Verified with `tsc --noEmit`, `next lint`, and `next build`.
+**Summary:** Added `opencode` as a real `ProviderKey`/`ApiProviderKey`, added the 4 free OpenCode Zen models (Big Pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, Nemotron 3 Ultra Free) to the model catalog, added `opencodeApiKey`/`opencodeEnabled` to the settings store (persist v6 migration), added OpenCode access checks to `model-rules.ts`, added a streaming `opencode/` route in `/api/chat` (mirrors the consensus route's Zen gateway call), wired the API key through `chat-client.ts`, added a Settings toggle + key input, and included OpenCode in `ModelPicker`/`SingleModelPicker`/`Composer`/`HeroComposer`/`page.tsx` enabled-provider plumbing. Verified with `tsc --noEmit`, `next lint`, and `next build`.
 
 
 ## [2026-06-30] Use delimiter in prompt to split answer from analysis

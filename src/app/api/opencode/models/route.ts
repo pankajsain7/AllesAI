@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 
 const OPENCODE_MODELS_URLS = [
+  // api.opencode.ai currently returns a fake HTTP 200 with a plain-text
+  // "Not Found" body for these paths instead of a real 404, so the known
+  // working host must be tried first.
+  "https://opencode.ai/zen/v1/models",
   "https://api.opencode.ai/zen/v1/models",
   "https://api.opencode.ai/v1/models",
-  "https://opencode.ai/zen/v1/models",
 ] as const;
 
 type OpenCodeModelsResponse = {
@@ -29,9 +32,15 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      // Retry on upstream gateway/server errors with the next known endpoint.
+      // Retry on upstream gateway/server errors, or a "fake 200" plain-text
+      // error body, with the next known endpoint.
       if (res.status >= 500) {
         lastError = `HTTP ${res.status} from ${url}`;
+        continue;
+      }
+      const contentType = res.headers.get("content-type") || "";
+      if (res.status === 200 && !/json/i.test(contentType)) {
+        lastError = `Unexpected non-JSON response from ${url}`;
         continue;
       }
 

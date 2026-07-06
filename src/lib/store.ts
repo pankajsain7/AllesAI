@@ -53,6 +53,18 @@ export type SharedResultScore = {
   value: string;
   note?: string;
 };
+export type SharedResultJudgeRanking = {
+  model: string;
+  overall?: number;
+  scores?: Record<string, number>;
+  rationale?: string;
+};
+export type SharedResultJudge = {
+  model: string;
+  winner?: string;
+  confidence?: string;
+  rankings: SharedResultJudgeRanking[];
+};
 export type CouncilRoundId = "opening" | "critique" | "convergence" | "synthesis";
 export type CouncilMemberStatus = "queued" | "running" | "done" | "failed" | "replaced";
 
@@ -94,6 +106,7 @@ export type SharedResult = {
   confidence?: string;
   decisionSummary?: string;
   scores?: SharedResultScore[];
+  judge?: SharedResultJudge;
   createdAt: number;
   updatedAt: number;
   pending?: boolean;
@@ -476,10 +489,11 @@ type ChatState = {
     patch?: Partial<
       Pick<
         SharedResult,
-        "content" | "finalAnswer" | "error" | "confidence" | "decisionSummary" | "scores"
+        "content" | "finalAnswer" | "error" | "confidence" | "decisionSummary" | "scores" | "judge"
       >
     >
   ) => void;
+  setSharedResultJudge: (convId: string, resultId: string, judge: SharedResultJudge) => void;
   startCouncilRound: (convId: string, resultId: string, round: CouncilRoundEntry) => void;
   upsertCouncilStatus: (
     convId: string,
@@ -1120,6 +1134,21 @@ export const useChat = create<ChatState>()(
             result.id === resultId
               ? { ...result, ...patch, pending: false, updatedAt: now }
               : result
+          );
+          return {
+            conversations: {
+              ...s.conversations,
+              [convId]: { ...c, sharedResults, updatedAt: now },
+            },
+          };
+        }),
+      setSharedResultJudge: (convId, resultId, judge) =>
+        set((s) => {
+          const c = s.conversations[convId];
+          if (!c) return s;
+          const now = Date.now();
+          const sharedResults = (c.sharedResults ?? []).map((result) =>
+            result.id === resultId ? { ...result, judge, updatedAt: now } : result
           );
           return {
             conversations: {

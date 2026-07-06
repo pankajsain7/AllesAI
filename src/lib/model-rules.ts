@@ -5,6 +5,9 @@ const REMOVED_MODEL_TOKENS = ["mis" + "tral"];
 const CONSENSUS_EXCLUDED_PROVIDERS = new Set<ModelInfo["provider"]>(["qwen"]);
 const CONSENSUS_EXCLUDED_FAMILY_IDS = new Set(["gpt-oss-120b"]);
 
+// Consensus works well with a small panel (2-3 answers). This priority list only
+// feeds the synthesizer/judge dropdowns — the panel itself comes from the user's
+// active columns.
 export const CONSENSUS_PRIORITY_MODEL_IDS = [
   "gemini-2.5-flash-lite",
   "ollama-cloud/gemma4:31b",
@@ -13,16 +16,35 @@ export const CONSENSUS_PRIORITY_MODEL_IDS = [
   "ollama-cloud/nemotron-3-super",
 ] as const;
 
+// A council debates best with a wider bench (4-5 members). Primaries seat the
+// table; fallbacks backfill dropouts so the room stays quorate.
 export const COUNCIL_PRIMARY_MODEL_IDS = [
   "gemini-2.5-flash-lite",
   "ollama-cloud/gemma4:31b",
   "meta-llama/llama-4-scout-17b-16e-instruct",
+  "ollama-cloud/cogito-2.1:671b",
 ] as const;
 
 export const COUNCIL_FALLBACK_MODEL_IDS = [
-  "ollama-cloud/cogito-2.1:671b",
   "ollama-cloud/nemotron-3-super",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
 ] as const;
+
+// A dedicated judge should be an impartial, capable model. Ordered by preference;
+// the client prefers a judge that is NOT one of the panel answers being scored.
+export const JUDGE_MODEL_IDS = [
+  "gemini-2.5-flash-lite",
+  "ollama-cloud/cogito-2.1:671b",
+  "ollama-cloud/gemma4:31b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+] as const;
+
+// Council participants may include the user's active panel models even when the
+// consensus synthesizer excludes them (e.g. qwen / gpt-oss). This is the looser
+// gate used only to seat council members.
+export function canUseModelForCouncil(model: ModelInfo): boolean {
+  return !isRemovedModel(model);
+}
 
 type ProviderAccessSettings = {
   apiKey?: string;

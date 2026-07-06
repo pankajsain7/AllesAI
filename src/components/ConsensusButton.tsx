@@ -7,6 +7,7 @@ import {
   useChat,
   useSettings,
   type ProviderToggleSettings,
+  type SharedResultJudge,
   type SharedResultScore,
 } from "@/lib/store";
 import {
@@ -19,7 +20,9 @@ import {
   CONSENSUS_PRIORITY_MODEL_IDS,
   COUNCIL_FALLBACK_MODEL_IDS,
   COUNCIL_PRIMARY_MODEL_IDS,
+  JUDGE_MODEL_IDS,
   canUseModelForConsensus,
+  canUseModelForCouncil,
   getModelAlias,
   hasProviderAccessForConsensus,
 } from "@/lib/model-rules";
@@ -37,6 +40,7 @@ type ConsensusMode = "single" | "council";
 
 type ConsensusStreamEvent =
   | { type: "delta"; text?: string }
+  | { type: "judge"; model?: string; winner?: string; confidence?: string; rankings?: SharedResultJudge["rankings"] }
   | { type: "status"; modelId?: string; model?: string; status?: string; round?: string; message?: string; replacementModelId?: string; replacementModel?: string }
   | { type: "round_start"; round?: string; title?: string }
   | { type: "council_note"; round?: string; roundTitle?: string; modelId?: string; model?: string; text?: string }
@@ -52,6 +56,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const startCouncilRound = useChat((s) => s.startCouncilRound);
   const upsertCouncilStatus = useChat((s) => s.upsertCouncilStatus);
   const addCouncilNote = useChat((s) => s.addCouncilNote);
+  const setSharedResultJudge = useChat((s) => s.setSharedResultJudge);
   const apiKey = useSettings((s) => s.apiKey);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const geminiApiKey = useSettings((s) => s.geminiApiKey);
@@ -65,8 +70,6 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const webSearchEnabled = useSettings((s) => s.webSearch);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
-  const consensusModel = useSettings((s) => s.consensusModel);
-  const setConsensusModel = useSettings((s) => s.setConsensusModel);
   const saveConsensusToChat = useSettings((s) => s.saveConsensusToChat);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
@@ -122,8 +125,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
     ).filter((id): id is string => Boolean(id));
     return unique(ids)
       .map((id) => getEligibleChoice(id, accessSettings))
-      .filter((choice): choice is ConsensusChoice => Boolean(choice));
+      .filter((choice): choice is ConsensusChoice => Boolean(choice))
+      // Largest context window first — long-context models handle bigger
+      // multi-model transcripts and prompts more reliably as the synthesizer.
+      .sort((a, b) => b.model.context - a.model.context);
   }, [accessSettings, localModelNames]);
+
+  // Auto-picked synthesizer chain: top available large-context model, plus a
+  // second as fallback. No user selection — one model is enough if that's all
+  // that's available.
+  const synthesizerChoices = consensusChoices.slice(0, 2);
 
   const councilPrimaryIds = useMemo(
     () =>
@@ -152,6 +163,15 @@ export function ConsensusButton({ convId }: { convId: string }) {
       ]),
     [consensusChoices, councilFallbackIds, councilPrimaryIds]
   );
+  const judgeChoiceIds = useMemo(
+    () =>
+      unique(
+        JUDGE_MODEL_IDS.map((id) => resolvePreferredRoute(id, accessSettings, localModelNames)).filter(
+          (id): id is string => Boolean(id)
+        )
+      ),
+    [accessSettings, localModelNames]
+  );
 
   if (!conv) return null;
 
@@ -164,13 +184,13 @@ export function ConsensusButton({ convId }: { convId: string }) {
     conv.threads[modelId]?.messages.some((message) => message.role === "assistant" && message.pending)
   );
 
-  const selectedConsensusModel = consensusChoices.some((choice) => choice.id === consensusModel)
-    ? consensusModel
-    : consensusChoices[0]?.id ?? "";
+  const selectedConsensusModel = synthesizerChoices[0]?.id ?? "";
+  const secondSynthesizerModel = synthesizerChoices[1]?.id;
   const consensusInfo = getModel(selectedConsensusModel);
   const consensusSource = consensusInfo ? API_PROVIDERS[consensusInfo.apiProvider] : undefined;
 
   const responses: { model: string; content: string }[] = [];
+  const respondingModelIds: string[] = [];
   let latestPrompt = "";
   for (const modelId of activeModelIds) {
     const t = conv.threads[modelId];
@@ -187,32 +207,61 @@ export function ConsensusButton({ convId }: { convId: string }) {
       latestPrompt = lastUser;
       const info = getModel(modelId);
       responses.push({ model: info ? getModelAlias(info) : getModelAlias(modelId), content: lastAsst });
+      respondingModelIds.push(modelId);
     }
   }
 
-  const hasEnoughResponses = responses.length >= 2;
+  // Council seats the user's own answering models first (so it works with
+  // whatever keys they actually have), then backfills from the priority bench,
+  // capped at 5 for a manageable debate.
+  const councilParticipantIds = unique([
+    ...respondingModelIds.filter((id) => {
+      const model = getModel(id);
+      return Boolean(
+        model &&
+          canUseModelForCouncil(model) &&
+          hasProviderAccessForConsensus(model.apiProvider, accessSettings)
+      );
+    }),
+    ...councilPrimaryIds,
+  ]).slice(0, 5);
+
+  // Prefer a judge that is NOT one of the panel answers being scored.
+  const selectedJudgeModel =
+    judgeChoiceIds.find((id) => !respondingModelIds.includes(id)) ??
+    judgeChoiceIds[0] ??
+    selectedConsensusModel;
+  const judgeFallbackModels = unique([
+    ...judgeChoiceIds.filter((id) => id !== selectedJudgeModel),
+    selectedConsensusModel,
+  ]).filter((id) => id && id !== selectedJudgeModel);
+
+  const hasAnyResponse = responses.length >= 1;
+  const hasCouncilQuorum = responses.length >= 2;
+  const isSolo = responses.length === 1;
   const hasConsensusSource = Boolean(
     consensusInfo &&
       hasProviderAccessForConsensus(consensusInfo.apiProvider, accessSettings) &&
       canUseModelForConsensus(consensusInfo)
   );
-  const canRunConsensus = hasEnoughResponses && hasConsensusSource && !hasPendingModels;
-  const canRunCouncil = hasEnoughResponses && !hasPendingModels && councilPrimaryIds.length >= 2;
+  const canRunConsensus = hasAnyResponse && hasConsensusSource && !hasPendingModels;
+  const canRunCouncil =
+    hasCouncilQuorum && !hasPendingModels && councilParticipantIds.length >= 2;
   const consensusDisabledReason = hasPendingModels
     ? "Waiting for all models to finish"
-    : !hasEnoughResponses
-      ? "Need at least two completed answers"
+    : !hasAnyResponse
+      ? "Need at least one completed answer"
       : !selectedConsensusModel
-        ? "No eligible consensus model"
+        ? "No eligible consensus model — add a provider key in Settings"
         : !hasConsensusSource && consensusSource
           ? `Add ${consensusSource.name} key or enable provider`
           : "Consensus unavailable";
   const councilDisabledReason = hasPendingModels
     ? "Waiting for all models to finish"
-    : !hasEnoughResponses
+    : !hasCouncilQuorum
       ? "Need at least two completed answers"
-      : councilPrimaryIds.length < 2
-        ? "Model council needs at least two available council models"
+      : councilParticipantIds.length < 2
+        ? "Council needs at least two available models — add another provider key"
         : "Model council unavailable";
 
   const persistConsensus = (content: string) => {
@@ -233,12 +282,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
       setError("Waiting for all models to finish.");
       return;
     }
-    if (!hasEnoughResponses) {
-      setError("Need at least two completed answers.");
+    if (mode === "single" && !hasAnyResponse) {
+      setError("Need at least one completed answer.");
+      return;
+    }
+    if (mode === "council" && !hasCouncilQuorum) {
+      setError("Model council needs at least two completed answers.");
       return;
     }
     if (mode === "single" && !selectedConsensusModel) {
-      setError("No eligible consensus model is selected.");
+      setError("No eligible consensus model is selected. Add a provider key in Settings.");
       return;
     }
     if (mode === "single" && !hasConsensusSource) {
@@ -249,8 +302,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
       );
       return;
     }
-    if (mode === "council" && councilPrimaryIds.length < 2) {
-      setError("Model council needs at least two available council models.");
+    if (mode === "council" && councilParticipantIds.length < 2) {
+      setError("Model council needs at least two available models. Add another provider key in Settings.");
       return;
     }
 
@@ -267,10 +320,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
         content: "",
         qualityMode: "deep" as const,
         pending: true,
-        participants: mode === "council" ? councilPrimaryIds.map((id) => getModelAlias(id)) : undefined,
+        participants: mode === "council" ? councilParticipantIds.map((id) => getModelAlias(id)) : undefined,
         statuses:
           mode === "council"
-            ? councilPrimaryIds.map((id) => ({
+            ? councilParticipantIds.map((id) => ({
                 modelId: id,
                 model: getModelAlias(id),
                 status: "queued",
@@ -291,14 +344,14 @@ export function ConsensusButton({ convId }: { convId: string }) {
           prompt: latestPrompt,
           responses,
           consensusModel: selectedConsensusModel,
-          candidateModels: mode === "council" ? councilPrimaryIds : undefined,
+          candidateModels: mode === "council" ? councilParticipantIds : undefined,
           moderatorModels: mode === "council" ? councilModeratorIds : undefined,
+          judgeModel: selectedJudgeModel,
+          judgeFallbackModels,
           fallbackModels:
             mode === "council"
               ? councilFallbackIds
-              : consensusChoices
-                  .map((choice) => choice.id)
-                  .filter((id) => id !== selectedConsensusModel),
+              : [secondSynthesizerModel].filter((id): id is string => Boolean(id)),
           apiKey,
           geminiApiKey,
           opencodeApiKey,
@@ -329,6 +382,13 @@ export function ConsensusButton({ convId }: { convId: string }) {
               output += obj.text;
               setText((t) => t + obj.text);
               if (resultId) appendSharedResultContent(convId, resultId, obj.text);
+            } else if (obj.type === "judge" && resultId && obj.model && obj.rankings?.length) {
+              setSharedResultJudge(convId, resultId, {
+                model: obj.model,
+                winner: obj.winner,
+                confidence: obj.confidence,
+                rankings: obj.rankings,
+              });
             } else if (obj.type === "round_start" && resultId && isCouncilRound(obj.round)) {
               startCouncilRound(convId, resultId, {
                 id: obj.round,
@@ -468,21 +528,28 @@ export function ConsensusButton({ convId }: { convId: string }) {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-5 py-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <select
-                  value={selectedConsensusModel}
-                  onChange={(e) => setConsensusModel(e.target.value)}
-                  disabled={loading || consensusChoices.length === 0}
-                  className="min-w-0 max-w-[220px] rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--fg)] outline-none"
-                  title="Consensus model"
-                >
-                  {consensusChoices.length === 0 && <option value="">No eligible model</option>}
-                  {consensusChoices.map(({ id, model }) => (
-                    <option key={id} value={id}>
-                      {getModelAlias(model)}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+                <span>Synthesizer:</span>
+                {synthesizerChoices.length === 0 && (
+                  <span className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[var(--fg)]">
+                    No eligible model
+                  </span>
+                )}
+                {synthesizerChoices.map(({ id, model }, index) => (
+                  <span
+                    key={id}
+                    className={
+                      "rounded-md border px-2 py-1 " +
+                      (index === 0
+                        ? "border-[var(--border-strong)] bg-[var(--bg-elevated)] font-medium text-[var(--fg)]"
+                        : "border-dashed border-[var(--border)] text-[var(--fg-muted)]")
+                    }
+                    title={index === 0 ? "Primary synthesizer (largest context)" : "Fallback synthesizer"}
+                  >
+                    {getModelAlias(model)}
+                    {index > 0 ? " (fallback)" : ""}
+                  </span>
+                ))}
               </div>
               <div className="flex items-center gap-2">
                 <button

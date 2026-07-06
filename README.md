@@ -14,7 +14,7 @@
 | Llama 4 Scout 17B | Groq | Local Ollama if installed | 128K | Vision |
 | Qwen3 32B | Groq | Local Ollama if installed | 128K | General |
 | Gemini 2.5 Flash Lite | Google Gemini API | - | 1M | Vision |
-| big-pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, North Mini Code Free, Nemotron 3 Ultra Free | OpenCode Zen | - | 128K | Curated free OpenCode Zen models |
+| big-pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, Nemotron 3 Ultra Free | OpenCode Zen | - | 128K | Curated free OpenCode Zen models |
 | Qwen3.5 397B, Gemma 4 31B, MiniMax M3 | Ollama (hosted API) | Local Ollama if installed | varies | Optional hosted reasoning/coding models |
 
 Core Groq and Gemini routes, plus the curated OpenCode Zen `-free` models, are available on free API tiers with your own key. Groq models require a [Groq API key](https://console.groq.com). Gemini requires a [Google AI Studio key](https://aistudio.google.com/api-keys). OpenCode Zen models require an OpenCode API key; only models with the `-free` suffix are free, others in its browsable catalog are paid.

@@ -15,6 +15,7 @@ import {
   type CouncilMemberStatus,
   type CouncilRoundId,
   type SharedResult,
+  type SharedResultJudge,
   type SharedResultType,
 } from "@/lib/store";
 import { Markdown } from "./Markdown";
@@ -233,7 +234,12 @@ function ConsensusResult({ result }: { result: SharedResult }) {
   const answerPart = dividerIdx >= 0 ? result.content.slice(0, dividerIdx).trim() : result.content;
   const detailsPart = dividerIdx >= 0 ? result.content.slice(dividerIdx + divider.length).trim() : "";
 
-  const hasExtraDetails = result.confidence || result.decisionSummary || (result.scores?.length ?? 0) > 0 || (result.participants?.length ?? 0) > 0;
+  const hasExtraDetails =
+    result.confidence ||
+    result.decisionSummary ||
+    (result.scores?.length ?? 0) > 0 ||
+    (result.participants?.length ?? 0) > 0 ||
+    (result.judge?.rankings.length ?? 0) > 0;
 
   return (
     <>
@@ -273,6 +279,9 @@ function ConsensusResult({ result }: { result: SharedResult }) {
                   </span>
                 ))}
               </div>
+            )}
+            {result.judge && result.judge.rankings.length > 0 && (
+              <JudgeScorecard judge={result.judge} />
             )}
           </div>
         </details>
@@ -331,7 +340,8 @@ function CouncilDebate({ result }: { result: SharedResult }) {
 
 function QualitySnapshot({ result }: { result: SharedResult }) {
   const scores = result.scores ?? [];
-  const hasSnapshot = result.confidence || result.decisionSummary || scores.length > 0;
+  const hasSnapshot =
+    result.confidence || result.decisionSummary || scores.length > 0 || (result.judge?.rankings.length ?? 0) > 0;
   if (!hasSnapshot) return null;
 
   return (
@@ -355,6 +365,68 @@ function QualitySnapshot({ result }: { result: SharedResult }) {
           ))}
         </div>
       )}
+      {result.judge && result.judge.rankings.length > 0 && <JudgeScorecard judge={result.judge} />}
+    </div>
+  );
+}
+
+const JUDGE_CRITERIA = ["accuracy", "relevance", "completeness", "clarity", "citations"] as const;
+
+function JudgeScorecard({ judge }: { judge: SharedResultJudge }) {
+  if (!judge.rankings.length) return null;
+  const used = JUDGE_CRITERIA.filter((criterion) =>
+    judge.rankings.some((ranking) => ranking.scores?.[criterion] !== undefined)
+  );
+
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-[11px]">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-medium text-[var(--fg)]">Judge scorecard</span>
+        <span className="truncate text-[10px] text-[var(--fg-muted)]">
+          {judge.model}
+          {judge.confidence ? ` · ${judge.confidence} confidence` : ""}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="text-[10px] text-[var(--fg-muted)]">
+              <th className="py-0.5 pr-2 font-medium">Model</th>
+              {used.map((criterion) => (
+                <th key={criterion} className="px-1 py-0.5 font-medium capitalize" title={criterion}>
+                  {criterion.slice(0, 4)}
+                </th>
+              ))}
+              <th className="px-1 py-0.5 font-medium">Overall</th>
+            </tr>
+          </thead>
+          <tbody>
+            {judge.rankings.map((ranking, index) => {
+              const isWinner = Boolean(judge.winner && ranking.model === judge.winner);
+              return (
+                <tr
+                  key={`${ranking.model}-${index}`}
+                  className={isWinner ? "font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}
+                  title={ranking.rationale}
+                >
+                  <td className="py-0.5 pr-2 whitespace-nowrap">
+                    {isWinner ? "★ " : ""}
+                    {ranking.model}
+                  </td>
+                  {used.map((criterion) => (
+                    <td key={criterion} className="px-1 py-0.5">
+                      {ranking.scores?.[criterion] ?? "–"}
+                    </td>
+                  ))}
+                  <td className="px-1 py-0.5">
+                    {ranking.overall !== undefined ? `${ranking.overall}/10` : "–"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
