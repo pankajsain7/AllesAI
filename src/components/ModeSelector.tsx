@@ -74,7 +74,7 @@ export function ModeSelector({
         aria-haspopup="listbox"
         aria-expanded={open}
         title="Chat mode"
-        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:border-[var(--border-strong)]"
+        className="inline-flex items-center gap-1.5 rounded-[var(--radius-full)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1.5 text-xs font-medium text-[var(--fg)] hover:border-[var(--border-strong)]"
       >
         <CurrentIcon size={14} className="text-[var(--accent)]" />
         <span>{current.label}</span>
@@ -87,7 +87,7 @@ export function ModeSelector({
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 z-50 mt-1.5 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-2xl"
+          className="absolute right-0 z-50 mt-1.5 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-lg)]"
         >
           {MODES.map((mode) => {
             const Icon = mode.icon;
@@ -103,7 +103,7 @@ export function ModeSelector({
                   onSelect?.(mode.id);
                 }}
                 className={
-                  "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition " +
+                  "flex w-full items-start gap-2.5 rounded-[var(--radius-md)] px-2.5 py-2 text-left transition " +
                   (active ? "bg-[var(--bg-soft)]" : "hover:bg-[var(--bg-soft)]")
                 }
               >

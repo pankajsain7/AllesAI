@@ -758,6 +758,24 @@ function pruneConversationsByRecency(
   return Object.fromEntries(entries.slice(0, maxCount));
 }
 
+export function hasConversationSentMessages(conversation: Conversation): boolean {
+  return Object.values(conversation.threads ?? {}).some((thread) =>
+    (thread.messages ?? []).some(
+      (message) => message.role === "user" && message.content.trim().length > 0
+    )
+  );
+}
+
+function filterPersistableConversations(
+  conversations: Record<string, Conversation>
+): Record<string, Conversation> {
+  return Object.fromEntries(
+    Object.entries(conversations).filter(([, conversation]) =>
+      hasConversationSentMessages(conversation)
+    )
+  );
+}
+
 function pickActiveConversationId(
   preferredId: string | null,
   conversations: Record<string, Conversation>
@@ -775,11 +793,13 @@ export const useChat = create<ChatState>()(
       pruneOldData: () =>
         set((s) => {
           const prunedConversations = pruneConversationsByRecency(
+            filterPersistableConversations(
             Object.fromEntries(
               Object.entries(s.conversations).map(([id, conversation]) => [
                 id,
                 pruneConversationPayload(conversation),
               ])
+            )
             )
           );
           return {
@@ -1355,6 +1375,23 @@ export const useChat = create<ChatState>()(
     {
       name: "alles-ai-chats",
       version: 21,
+      partialize: (state) => {
+        const conversations = pruneConversationsByRecency(
+          filterPersistableConversations(
+            Object.fromEntries(
+              Object.entries(state.conversations).map(([id, conversation]) => [
+                id,
+                pruneConversationPayload(conversation),
+              ])
+            )
+          )
+        );
+        return {
+          conversations,
+          activeId: pickActiveConversationId(state.activeId, conversations),
+          lastUsedModels: state.lastUsedModels,
+        };
+      },
       migrate: (persistedState) => {
         const state = persistedState as Partial<ChatState> | undefined;
         const sanitizedConversations = Object.fromEntries(
@@ -1363,7 +1400,9 @@ export const useChat = create<ChatState>()(
             sanitizeConversation(conversation as Conversation),
           ])
         );
-        const conversations = pruneConversationsByRecency(sanitizedConversations);
+        const conversations = pruneConversationsByRecency(
+          filterPersistableConversations(sanitizedConversations)
+        );
 
         const lastUsedModels = dedupeModelIdsByFamily(
           Array.from(
@@ -1391,7 +1430,9 @@ export const useChat = create<ChatState>()(
             sanitizeConversation(conv),
           ])
         );
-        const conversations = pruneConversationsByRecency(sanitizedConvs);
+        const conversations = pruneConversationsByRecency(
+          filterPersistableConversations(sanitizedConvs)
+        );
         const sanitizedLast = dedupeModelIdsByFamily(
           Array.from(
             new Set(

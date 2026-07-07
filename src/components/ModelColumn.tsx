@@ -237,7 +237,6 @@ export function MessageBubble({
 // Remembers each column's scroll position so it survives unmount/remount
 // (e.g. opening the model picker overlay or switching the single-chat model).
 const scrollPositions = new Map<string, number>();
-const ANSWER_TOP_OFFSET_PX = 2;
 
 export function ModelColumn({
   convId,
@@ -311,20 +310,49 @@ export function ModelColumn({
 
   const handleScroll = () => {
     const c = scrollContainerRef.current;
-    if (c) scrollPositions.set(scrollKey, c.scrollTop);
+    if (!c) return;
+    scrollPositions.set(scrollKey, c.scrollTop);
+    // Distinguish our own programmatic re-pinning from a real user scroll:
+    // if the scrollTop is far from where we last pinned it, the user must
+    // have scrolled manually, so stop fighting them.
+    if (pinnedRef.current && Math.abs(c.scrollTop - pinnedTopRef.current) > 2) {
+      pinnedRef.current = false;
+    }
   };
 
-  // The element that should land at the top of the viewport after a new
-  // prompt is sent: the assistant reply immediately following the latest
-  // user bubble (so the answer, not the prompt, is what's visible), falling
-  // back to the user bubble itself if no reply has been rendered yet.
-  const getScrollTarget = (container: HTMLElement): HTMLElement | undefined => {
+  // Desired scrollTop after a new prompt is sent: only the LAST ~3 lines of
+  // the latest user bubble stay visible at the top, with the answer filling
+  // the rest of the column beneath it. Computed from the *actual* rendered
+  // line boxes (via Range.getClientRects) rather than an approximate
+  // line-height guess, so the cut lands exactly on a line boundary instead
+  // of slicing through the middle of a line of text. Purely in terms of
+  // this container's own scrollTop (never element.scrollIntoView), so it
+  // can never drag a horizontally-scrolling ancestor (the multi-column row)
+  // sideways.
+  const PROMPT_TAIL_LINES = 3;
+  const computeScrollTop = (container: HTMLElement): number | undefined => {
     const userBubbles = container.querySelectorAll("[data-role='user']");
     const lastUser = userBubbles[userBubbles.length - 1] as HTMLElement | undefined;
     if (!lastUser) return undefined;
-    const next = lastUser.nextElementSibling as HTMLElement | null;
-    if (next && next.getAttribute("data-role") === "assistant") return next;
-    return lastUser;
+
+    const containerRect = container.getBoundingClientRect();
+    const bubbleRect = lastUser.getBoundingClientRect();
+
+    // Group the text's line-box rects by their (rounded) viewport top so
+    // wrapped lines - even across bold/link spans - collapse into one
+    // entry per visual line.
+    const range = document.createRange();
+    range.selectNodeContents(lastUser);
+    const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0);
+    let cutViewportTop = bubbleRect.top;
+    if (rects.length > 0) {
+      const tops = Array.from(new Set(rects.map((r) => Math.round(r.top)))).sort((a, b) => a - b);
+      if (tops.length > PROMPT_TAIL_LINES) {
+        cutViewportTop = tops[tops.length - PROMPT_TAIL_LINES];
+      }
+    }
+    const delta = cutViewportTop - containerRect.top;
+    return Math.max(0, container.scrollTop + delta);
   };
 
   // Find the ID of the latest user message
@@ -341,6 +369,19 @@ export function ModelColumn({
   // (page refresh / opening old chat) does not trigger a scroll.
   const lastUserMsgId = useRef<string | null>(latestUserMsgId);
   const lastHandledSubmissionAt = useRef<number>(0);
+  // While true, the scroll position is actively being held at
+  // computeScrollTop() on every content mutation (streaming tokens can
+  // change wrapped-line heights repeatedly). Disengages the moment the user
+  // scrolls manually, or once the answer finishes streaming.
+  const pinnedRef = useRef(false);
+  const pinnedTopRef = useRef(0);
+
+  const pinScrollTop = (container: HTMLElement) => {
+    const top = computeScrollTop(container);
+    if (top == null) return;
+    pinnedTopRef.current = top;
+    container.scrollTop = top;
+  };
 
   useEffect(() => {
     if (!thread) return;
@@ -361,22 +402,24 @@ export function ModelColumn({
     lastUserMsgId.current = latestUserMsgId;
     if (hasFreshSubmission) lastHandledSubmissionAt.current = latestSubmissionAt;
 
-    // Wait for DOM paint, then scroll so the answer (not the prompt) starts at the top
+    // Engage the pin, then snap (no animation — animating while the answer
+    // is actively streaming/mutating fights the browser and causes the
+    // "scrolls all the way, then jerks back" glitch). Two rAFs so layout
+    // has settled for a long, freshly-wrapped prompt before we measure it.
+    pinnedRef.current = true;
     requestAnimationFrame(() => {
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      const target = getScrollTarget(container);
-      if (target) {
-        container.scrollTo({
-          top: Math.max(0, target.offsetTop - ANSWER_TOP_OFFSET_PX),
-          behavior: "smooth",
-        });
-      }
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current;
+        if (!container || !pinnedRef.current) return;
+        pinScrollTop(container);
+      });
     });
   }, [convId, latestUserMsgId, thread]);
 
-  // Dynamic spacer: just enough room so the answer can scroll to the top.
-  // Shrinks automatically as the assistant response grows beneath it.
+  // Dynamic spacer: reserves just enough room so the container can actually
+  // scroll to that position, shrinking automatically as the assistant
+  // response grows beneath it. While pinned, also re-asserts the exact
+  // scrollTop on every mutation so streamed content can't drift the view.
   useEffect(() => {
     if (!thread) return;
     const container = scrollContainerRef.current;
@@ -384,33 +427,51 @@ export function ModelColumn({
     if (!container || !spacer) return;
 
     const updateSpacer = () => {
-      const target = getScrollTarget(container);
-      if (!target) {
+      const top = computeScrollTop(container);
+      if (top == null) {
         spacer.style.height = "0px";
         return;
       }
-      // Sum heights of the target bubble + everything after it (excluding spacer)
-      let contentBelow = 0;
-      let found = false;
+      spacer.style.height = "0px";
+      let contentHeight = 0;
       Array.from(container.children).forEach((child) => {
         if (child === spacer) return;
-        if (child === target) found = true;
-        if (found) contentBelow += (child as HTMLElement).offsetHeight;
+        contentHeight += (child as HTMLElement).offsetHeight;
       });
+      const contentBelow = contentHeight - top;
       const needed = container.clientHeight - contentBelow;
       spacer.style.height = `${Math.max(0, needed)}px`;
+      if (pinnedRef.current) {
+        pinnedTopRef.current = top;
+        container.scrollTop = top;
+      }
     };
 
+    // Apply once immediately, while still pinned, so the final chunk of a
+    // response (which can reflow line-wrapping/headers right as streaming
+    // ends) still gets one last correction before we let go.
     updateSpacer();
     const ro = new ResizeObserver(updateSpacer);
     ro.observe(container);
     const mo = new MutationObserver(updateSpacer);
     mo.observe(container, { childList: true, subtree: true, characterData: true });
+
+    // Only release the pin after a short grace period once streaming ends,
+    // so any late, async reflow (markdown/code formatting, fonts) still gets
+    // corrected instead of leaving the view mid-line.
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    if (!isPending) {
+      releaseTimer = setTimeout(() => {
+        pinnedRef.current = false;
+      }, 400);
+    }
+
     return () => {
       ro.disconnect();
       mo.disconnect();
+      if (releaseTimer) clearTimeout(releaseTimer);
     };
-  }, [thread]);
+  }, [thread, isPending]);
 
 
 
@@ -555,7 +616,13 @@ export function ModelColumn({
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className={"flex-1 overflow-y-auto " + (compact ? "space-y-2 p-2" : "space-y-3 p-3")}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        onWheel={() => { pinnedRef.current = false; }}
+        onTouchStart={() => { pinnedRef.current = false; }}
+        className={"flex-1 overflow-y-auto " + (compact ? "space-y-2 p-2" : "space-y-3 p-3")}
+      >
         {thread.messages.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 pt-14 text-center">
             {info && (

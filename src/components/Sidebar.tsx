@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useChat } from "@/lib/store";
+import { hasConversationSentMessages, useChat } from "@/lib/store";
 import {
   MessageSquarePlus,
   PanelLeftClose,
@@ -10,6 +10,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { SettingsDialog } from "./SettingsDialog";
+import { Logo } from "./Logo";
+import { Button, IconButton } from "./Button";
 
 function dayBucket(ts: number): string {
   const d = new Date(ts);
@@ -38,7 +40,9 @@ export function Sidebar() {
   }, [pruneOldData]);
 
   const list = useMemo(() => {
-    const arr = Object.values(conversations).sort((a, b) => b.updatedAt - a.updatedAt);
+    const arr = Object.values(conversations)
+      .filter(hasConversationSentMessages)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
     if (!query.trim()) return arr;
     const q = query.toLowerCase();
     return arr.filter((c) => c.title.toLowerCase().includes(q));
@@ -64,49 +68,36 @@ export function Sidebar() {
   return (
     <aside
       className={
-        "hidden shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-soft)] transition-all duration-200 md:flex " +
+        "hidden shrink-0 flex-col bg-[var(--bg-soft)] transition-all duration-200 md:flex " +
         (collapsed ? "w-12" : "w-72")
       }
     >
       {collapsed ? (
         <div className="flex flex-col items-center gap-3 py-3">
-          <button
-            onClick={() => setCollapsed(false)}
-            className="rounded-md p-1.5 text-[var(--fg-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--fg)]"
-            title="Expand sidebar"
-          >
+          <IconButton onClick={() => setCollapsed(false)} title="Expand sidebar">
             <PanelLeftOpen size={16} />
-          </button>
-          <button
-            onClick={() => newConversation()}
-            className="rounded-md p-1.5 text-[var(--fg-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--fg)]"
-            title="New chat"
-          >
+          </IconButton>
+          <IconButton onClick={() => newConversation()} title="New chat">
             <MessageSquarePlus size={16} />
-          </button>
+          </IconButton>
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
-            <img src="/AllesAI.png" alt="Alles AI" className="h-8 w-auto origin-left scale-[2.0] object-contain mix-blend-multiply" />
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCollapsed(true)}
-                className="rounded-md p-1.5 text-[var(--fg-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--fg)]"
-                title="Collapse sidebar"
-              >
-                <PanelLeftClose size={15} />
-              </button>
-            </div>
+          <div className="flex items-center justify-between px-3 pb-1 pt-3">
+            <Logo />
+            <IconButton onClick={() => setCollapsed(true)} title="Collapse sidebar">
+              <PanelLeftClose size={15} />
+            </IconButton>
           </div>
 
-          <div className="px-2 pt-2">
-            <button
+          <div className="px-2 pt-1.5">
+            <Button
               onClick={() => newConversation()}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--fg)] transition hover:border-[var(--border-strong)]"
+              size="sm"
+              className="w-full"
             >
               <MessageSquarePlus size={13} /> New chat
-            </button>
+            </Button>
           </div>
 
           <div className="px-2 pt-2">
@@ -119,7 +110,7 @@ export function Sidebar() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search chats..."
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-7 pr-2 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)] focus:border-[var(--border-strong)]"
+                className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-7 pr-2 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)] focus:border-[var(--border-strong)]"
               />
             </div>
           </div>
@@ -139,7 +130,7 @@ export function Sidebar() {
                   <div
                     key={c.id}
                     className={
-                      "group mb-0.5 flex items-center gap-1 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--bg-elevated)] " +
+                      "group mb-0.5 flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1.5 text-sm hover:bg-[var(--bg-elevated)] " +
                       (activeId === c.id ? "bg-[var(--bg-elevated)]" : "")
                     }
                   >
@@ -150,13 +141,13 @@ export function Sidebar() {
                     >
                       {c.title}
                     </button>
-                    <button
+                    <IconButton
                       onClick={() => confirmDelete(c.id, c.title)}
-                      className="rounded p-1 text-[var(--fg-subtle)] opacity-0 hover:bg-[var(--bg-soft)] hover:text-[var(--error)] group-hover:opacity-100"
                       title="Delete"
+                      className="h-6 w-6 text-[var(--fg-subtle)] opacity-0 hover:bg-[var(--bg-soft)] hover:text-[var(--error)] group-hover:opacity-100"
                     >
                       <Trash2 size={11} />
-                    </button>
+                    </IconButton>
                   </div>
                 ))}
               </div>

@@ -28,7 +28,7 @@ import {
 import { isRemovedModelName } from "@/lib/model-rules";
 
 export function Composer({ convId }: { convId: string }) {
-  const MIN_PROMPT_ROWS = 2;
+  const MIN_PROMPT_ROWS = 1;
   const MAX_PROMPT_ROWS = 8;
   const conv = useChat((s) => s.conversations[convId]);
   const setFocusedModel = useChat((s) => s.setFocusedModel);
@@ -256,8 +256,8 @@ export function Composer({ convId }: { convId: string }) {
             }
           }}
           placeholder={isSuper ? "Ask anything - get one best answer..." : focusedModel ? "Continue chatting with the focused model..." : "Message all selected models..."}
-          rows={2}
-          className="block w-full flex-1 resize-none self-center bg-transparent py-1.5 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
+          rows={1}
+          className="composer-input block w-full flex-1 resize-none self-center bg-transparent py-3 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
         />
         {anyPending ? (
           <button

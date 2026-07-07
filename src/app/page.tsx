@@ -21,6 +21,8 @@ import { SettingsDialog } from "@/components/SettingsDialog";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { KeyRound, ChevronDown } from "lucide-react";
 import { getModel } from "@/lib/models";
+import { Logo } from "@/components/Logo";
+import { Button } from "@/components/Button";
 
 export default function Home() {
   const mounted = useSyncExternalStore(
@@ -183,7 +185,7 @@ export default function Home() {
         {/* Top bar */}
         <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2 md:hidden">
-            <img src="/AllesAI.png" alt="Alles AI" className="h-7 w-auto object-contain mix-blend-multiply scale-[2.0] origin-left" />
+            <Logo />
           </div>
           <div className="hidden min-w-0 items-center gap-2 md:flex">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -217,10 +219,10 @@ export default function Home() {
             )}
             {conv && conv.chatMode === "multi" && <ModelPicker convId={conv.id} />}
             {conv && isSingle && (
-              <button
-                type="button"
+              <Button
                 onClick={() => setSinglePickerOpen((v) => !v)}
-                className="inline-flex max-w-[200px] items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1.5 text-xs text-[var(--fg)] hover:border-[var(--border-strong)]"
+                size="sm"
+                className="max-w-[200px]"
                 title="Choose model"
               >
                 {singleModel ? (
@@ -232,7 +234,7 @@ export default function Home() {
                   <span>Choose model</span>
                 )}
                 <ChevronDown size={12} className="text-[var(--fg-muted)]" />
-              </button>
+              </Button>
             )}
             {conv && (
               <div className="md:hidden">
@@ -246,10 +248,10 @@ export default function Home() {
         </header>
 
         {setupNeeds.length > 0 && (
-          <div className="flex items-center gap-2 border-b border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-xs text-yellow-700">
-            <KeyRound size={14} />
-            <span>
-              In Settings, add or enable: {setupNeeds.join(", ")}.
+          <div className="flex items-center gap-2 border-b border-[var(--warning)]/30 bg-[var(--warning)]/10 px-4 py-2 text-xs text-[var(--warning)]">
+            <KeyRound size={14} className="shrink-0" />
+            <span className="text-[var(--fg)]">
+              In Settings, add or enable: <strong className="font-semibold">{setupNeeds.join(", ")}</strong>.
             </span>
           </div>
         )}
@@ -259,8 +261,12 @@ export default function Home() {
         )}
 
         {conv && !isSingle && !isSuper && visibleSelectedModels.length === 0 && legacyHistoryModelIds.length === 0 && (
-          <div className="flex flex-1 items-center justify-center text-sm text-[var(--fg-muted)]">
-            No active models selected. Open <strong className="mx-1">Models</strong> above or enable a provider in Settings.
+          <div className="flex flex-1 items-center justify-center px-6">
+            <div className="max-w-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-soft)] px-6 py-5 text-center">
+              <p className="text-sm text-[var(--fg-muted)]">
+                No active models selected. Open <strong className="font-semibold text-[var(--fg)]">Models</strong> above or enable a provider in Settings.
+              </p>
+            </div>
           </div>
         )}
 

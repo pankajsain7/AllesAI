@@ -26,9 +26,10 @@ import {
   getCustomProviderModelInfos,
 } from "@/lib/models";
 import { isRemovedModelName } from "@/lib/model-rules";
+import { IconButton } from "./Button";
 
 export function HeroComposer({ convId }: { convId: string }) {
-  const MIN_PROMPT_ROWS = 2;
+  const MIN_PROMPT_ROWS = 1;
   const MAX_PROMPT_ROWS = 8;
   const conv = useChat((s) => s.conversations[convId]);
   const webSearch = useSettings((s) => s.webSearch);
@@ -250,25 +251,22 @@ export function HeroComposer({ convId }: { convId: string }) {
         <form onSubmit={onSubmit} className="w-full">
           <div
             className={
-              "flex items-end gap-2 rounded-3xl border bg-[var(--bg-elevated)] px-4 py-3 shadow-sm transition focus-within:shadow-md " +
+              "flex min-h-16 items-center gap-2 rounded-[var(--radius-lg)] border bg-[var(--bg-elevated)] px-4 py-3 shadow-[var(--shadow-sm)] transition focus-within:shadow-[var(--shadow-md)] " +
               (isSuper
                 ? "border-[var(--accent)]/25 focus-within:border-[var(--accent)]/60"
                 : "border-[var(--border)] focus-within:border-[var(--border-strong)]")
             }
           >
-            <button
-              type="button"
+            <IconButton
               onClick={() => setWebSearch(!webSearch)}
               title={webSearch ? "Web search ON - click to disable" : "Enable web search for all models"}
-              className={
-                "mb-0.5 shrink-0 rounded-full p-1.5 transition " +
-                (webSearch ? "text-[var(--accent)]" : "text-[var(--fg-subtle)] hover:text-[var(--fg-muted)]")
-              }
+              active={webSearch}
+              size="sm"
+              className="self-center"
             >
               <Globe size={15} />
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               onClick={onEnhance}
               disabled={!text.trim() || !enhanceModel || enhancing}
               title={
@@ -276,10 +274,11 @@ export function HeroComposer({ convId }: { convId: string }) {
                   ? "Enhance prompt - let AI rewrite it for a better answer"
                   : "Select a model to enhance the prompt"
               }
-              className="mb-0.5 shrink-0 rounded-full p-1.5 text-[var(--fg-subtle)] transition hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--fg-subtle)]"
+              size="sm"
+              className="self-center hover:text-[var(--accent)]"
             >
               {enhancing ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            </button>
+            </IconButton>
             <textarea
               ref={textareaRef}
               autoFocus
@@ -293,7 +292,7 @@ export function HeroComposer({ convId }: { convId: string }) {
               }}
               placeholder="Ask anything..."
               rows={1}
-              className="block w-full flex-1 resize-none self-center overflow-y-auto bg-transparent py-1.5 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
+              className="composer-input block w-full flex-1 resize-none self-center overflow-y-auto border-0 bg-transparent py-0 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
             />
             <button
               type="submit"
@@ -310,8 +309,8 @@ export function HeroComposer({ convId }: { convId: string }) {
         </form>
 
         <p className="mt-4 text-center text-xs text-[var(--fg-subtle)]">
-          Press <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5">Enter</kbd> to send,{" "}
-          <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5">Shift+Enter</kbd> for newline
+          Press <kbd className="rounded-[var(--radius-sm)] border border-[var(--border)] px-1.5 py-0.5">Enter</kbd> to send,{" "}
+          <kbd className="rounded-[var(--radius-sm)] border border-[var(--border)] px-1.5 py-0.5">Shift+Enter</kbd> for newline
         </p>
       </div>
     </div>
