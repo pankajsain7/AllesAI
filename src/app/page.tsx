@@ -102,13 +102,28 @@ export default function Home() {
   const visibleSelectedModels = conv
     ? filterSelectableModelIds(conv.selectedModels)
     : [];
+  const legacyHistoryModelIds = conv
+    ? Object.entries(conv.threads)
+        .filter(
+          ([modelId, thread]) =>
+            !visibleSelectedModels.includes(modelId) && (thread.messages?.length ?? 0) > 0
+        )
+        .map(([modelId]) => modelId)
+    : [];
   const visibleFocusedModel =
     conv?.focusedModel && visibleSelectedModels.includes(conv.focusedModel)
       ? conv.focusedModel
       : null;
+  const activeSelectedHaveMessages = !!conv && visibleSelectedModels.some(
+    (id) => (conv.threads[id]?.messages.length ?? 0) > 0
+  );
+  const baseColumnModelIds =
+    legacyHistoryModelIds.length > 0 && !activeSelectedHaveMessages
+      ? legacyHistoryModelIds
+      : [...visibleSelectedModels, ...legacyHistoryModelIds];
   const columnModelIds = visibleFocusedModel
     ? [visibleFocusedModel]
-    : visibleSelectedModels;
+    : Array.from(new Set(baseColumnModelIds));
   const selectedInfos = conv
     ? visibleSelectedModels.map(getModel).filter((model): model is NonNullable<typeof model> => Boolean(model))
     : [];
@@ -148,8 +163,8 @@ export default function Home() {
   ].filter(Boolean);
 
   // Determine if the conversation has any messages yet - if not, show the hero
-  const hasMessages = !!conv && visibleSelectedModels.some(
-    (id) => (conv.threads[id]?.messages.length ?? 0) > 0
+  const hasMessages = !!conv && Object.values(conv.threads).some(
+    (thread) => (thread.messages?.length ?? 0) > 0
   );
   const isAuto = conv?.chatMode === "auto";
   const isSingle = conv?.chatMode === "single";
@@ -239,7 +254,7 @@ export default function Home() {
           <SingleModelPicker convId={conv.id} onPick={() => setSinglePickerOpen(false)} />
         )}
 
-        {conv && !isAuto && !isSingle && visibleSelectedModels.length === 0 && (
+        {conv && !isAuto && !isSingle && visibleSelectedModels.length === 0 && legacyHistoryModelIds.length === 0 && (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--fg-muted)]">
             No active models selected. Open <strong className="mx-1">Models</strong> above or enable a provider in Settings.
           </div>
@@ -257,6 +272,7 @@ export default function Home() {
                   key={isSingle ? "single-column" : id}
                   convId={conv.id}
                   modelId={id}
+                  readOnly={legacyHistoryModelIds.includes(id)}
                   onDragStart={() => handleDragStart(id)}
                   onDragOver={(e) => handleDragOver(e, id)}
                   onDrop={() => handleDrop(id)}

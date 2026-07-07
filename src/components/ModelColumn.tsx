@@ -240,6 +240,7 @@ const scrollPositions = new Map<string, number>();
 export function ModelColumn({
   convId,
   modelId,
+  readOnly,
   onDragStart,
   onDragOver,
   onDrop,
@@ -247,6 +248,7 @@ export function ModelColumn({
 }: {
   convId: string;
   modelId: string;
+  readOnly?: boolean;
   onDragStart?: () => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: () => void;
@@ -266,6 +268,7 @@ export function ModelColumn({
   const isOtherFocused = !!conv?.focusedModel && !isFocused;
 
   const toggleFocus = () => {
+    if (readOnly) return;
     if (!conv) return;
     setFocusedModel(convId, isFocused ? null : modelId);
   };
@@ -276,6 +279,7 @@ export function ModelColumn({
 
   // Toggle = on/off + collapse/expand merged into one action
   const handleToggle = () => {
+    if (readOnly) return;
     if (!conv) return;
     toggleModelEnabled(convId, modelId);
   };
@@ -313,6 +317,7 @@ export function ModelColumn({
   const latestUserMsgId = latestUserMsg?.id ?? null;
   const canRegenerate = Boolean(latestUserMsg) && !isPending;
   const regenerate = () => {
+    if (readOnly) return;
     if (!canRegenerate) return;
     void streamModel({ convId, modelId });
   };
@@ -425,14 +430,16 @@ export function ModelColumn({
         }
       >
         {/* Grip is the only draggable element */}
-        <span
-          draggable
-          onDragStart={onDragStart}
-          className="cursor-grab active:cursor-grabbing text-[var(--fg-subtle)] hover:text-[var(--fg-muted)] shrink-0"
-          title="Drag to reorder"
-        >
-          <GripVertical size={14} />
-        </span>
+        {!readOnly && (
+          <span
+            draggable
+            onDragStart={onDragStart}
+            className="cursor-grab active:cursor-grabbing text-[var(--fg-subtle)] hover:text-[var(--fg-muted)] shrink-0"
+            title="Drag to reorder"
+          >
+            <GripVertical size={14} />
+          </span>
+        )}
         {TogglePill}
         {info && <ProviderIcon provider={info.provider} size={26} />}
         <span
@@ -459,14 +466,16 @@ export function ModelColumn({
       {/* Header */}
       <div className={"flex items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] " + (compact ? "px-3 py-2" : "px-3.5 py-2.5")}>
         <div className="flex min-w-0 items-center gap-2.5">
-          <span
-            draggable
-            onDragStart={onDragStart}
-            className="cursor-grab active:cursor-grabbing text-[var(--fg-subtle)] hover:text-[var(--fg-muted)] shrink-0"
-            title="Drag to reorder"
-          >
-            <GripVertical size={14} />
-          </span>
+          {!readOnly && (
+            <span
+              draggable
+              onDragStart={onDragStart}
+              className="cursor-grab active:cursor-grabbing text-[var(--fg-subtle)] hover:text-[var(--fg-muted)] shrink-0"
+              title="Drag to reorder"
+            >
+              <GripVertical size={14} />
+            </span>
+          )}
           {info && <ProviderIcon provider={info.provider} size={28} />}
           <div className="min-w-0">
             <div className="truncate text-sm font-medium text-[var(--fg)]">
@@ -477,12 +486,17 @@ export function ModelColumn({
               <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-[9px] font-medium uppercase leading-none text-[var(--fg-muted)]">
                 {sourceName}
               </span>
+              {readOnly && (
+                <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-[9px] font-medium uppercase leading-none text-[var(--fg-muted)]">
+                  Archive
+                </span>
+              )}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1 text-[var(--fg-muted)]">
-          {TogglePill}
-          {canRegenerate && (
+          {!readOnly && TogglePill}
+          {!readOnly && canRegenerate && (
             <button
               onClick={regenerate}
               className="rounded p-1.5 hover:bg-[var(--bg)] hover:text-[var(--fg)]"
@@ -492,7 +506,7 @@ export function ModelColumn({
             </button>
           )}
           {/* Stop streaming button - only visible when pending */}
-          {isPending && (
+          {!readOnly && isPending && (
             <button
               onClick={stopStream}
               className="rounded p-1.5 text-[var(--error)] hover:bg-[var(--bg)]"
@@ -501,16 +515,18 @@ export function ModelColumn({
               <Square size={13} fill="currentColor" />
             </button>
           )}
-          <button
-            onClick={toggleFocus}
-            className={
-              "rounded p-1.5 hover:bg-[var(--bg)] hover:text-[var(--fg)] " +
-              (isFocused ? "text-[var(--accent)]" : "")
-            }
-            title={isFocused ? "Exit focus mode" : "Focus on this model only"}
-          >
-            <Focus size={14} />
-          </button>
+          {!readOnly && (
+            <button
+              onClick={toggleFocus}
+              className={
+                "rounded p-1.5 hover:bg-[var(--bg)] hover:text-[var(--fg)] " +
+                (isFocused ? "text-[var(--accent)]" : "")
+              }
+              title={isFocused ? "Exit focus mode" : "Focus on this model only"}
+            >
+              <Focus size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -554,6 +570,11 @@ export function ModelColumn({
       {isOtherFocused && (
         <div className="border-t border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-center text-[10px] text-[var(--fg-muted)]">
           read-only - another model is focused
+        </div>
+      )}
+      {readOnly && (
+        <div className="border-t border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-center text-[10px] text-[var(--fg-muted)]">
+          archived model history - model no longer available
         </div>
       )}
     </div>

@@ -7,6 +7,19 @@ export const runtime = "nodejs";
 // from blocking the entire consensus run indefinitely.
 const GENERATE_TEXT_TIMEOUT_MS = 45_000;
 
+// Streaming synthesis watchdogs. If the chosen synthesizer/judge produces no
+// first token within FIRST_TOKEN_TIMEOUT, the server aborts it and tries the
+// next fallback model itself — instead of hanging until the client gives up.
+// Once tokens are flowing, IDLE_TIMEOUT catches a mid-stream stall.
+const STREAM_FIRST_TOKEN_TIMEOUT_MS = 40_000;
+const STREAM_IDLE_TIMEOUT_MS = 40_000;
+
+// While the server is doing non-streaming work (judge scoring) or waiting for
+// the synthesizer's first token, it emits a heartbeat this often so the client
+// connection watchdog sees liveness and does not abort the whole request while
+// the server is still working through its fallback chain.
+const HEARTBEAT_INTERVAL_MS = 12_000;
+
 // Starting context budget (chars). Halved on each 413/context-too-large retry
 // so the synthesizer always gets a response even with many long model answers.
 const INITIAL_CONTEXT_BUDGET = 280_000;
@@ -432,6 +445,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Emits a periodic heartbeat so the client's connection watchdog sees liveness
+// during long non-streaming work (judge scoring) or while the server is waiting
+// for a synthesizer's first token / cycling through fallbacks. Returns a stop
+// function that must be called when the work completes.
+function startHeartbeat(send: SendEvent): () => void {
+  const timer = setInterval(() => send({ type: "ping" }), HEARTBEAT_INTERVAL_MS);
+  return () => clearInterval(timer);
+}
+
 function createNdjsonResponse(handler: (send: SendEvent) => Promise<void>): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -458,8 +480,8 @@ function createNdjsonResponse(handler: (send: SendEvent) => Promise<void>): Resp
   });
 }
 
-async function openStreamingUpstream(body: RequestBody, modelId: string, messages: ChatMessage[]) {
-  const upstream = await fetchUpstream(body, modelId, messages, true);
+async function openStreamingUpstream(body: RequestBody, modelId: string, messages: ChatMessage[], signal?: AbortSignal) {
+  const upstream = await fetchUpstream(body, modelId, messages, true, signal);
   if (upstream.status !== 200) {
     // Preserve the HTTP status so runSingle can detect context-overflow (413)
     // and retry with a smaller context budget instead of surfacing an error.
@@ -472,11 +494,17 @@ async function openStreamingUpstream(body: RequestBody, modelId: string, message
 
 async function pipeStreamingText(
   send: SendEvent,
-  opened: Awaited<ReturnType<typeof openStreamingUpstream>>
+  opened: Awaited<ReturnType<typeof openStreamingUpstream>>,
+  onDelta?: () => void
 ) {
   const reader = opened.upstream.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  const emitDelta = (text: string) => {
+    send({ type: "delta", text });
+    onDelta?.();
+  };
 
   while (true) {
     const { value, done } = await reader.read();
@@ -498,7 +526,7 @@ async function pipeStreamingText(
             eval_count?: number;
           };
           const delta = json.message?.content;
-          if (delta) send({ type: "delta", text: delta });
+          if (delta) emitDelta(delta);
           if (json.done) {
             if (typeof json.prompt_eval_count === "number" || typeof json.eval_count === "number") {
               send({ type: "usage", usage: { prompt_tokens: json.prompt_eval_count, completion_tokens: json.eval_count } });
@@ -515,10 +543,10 @@ async function pipeStreamingText(
         const json = JSON.parse(payload);
         if (opened.provider === "gemini") {
           const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) send({ type: "delta", text });
+          if (text) emitDelta(text);
         } else {
           const delta = json?.choices?.[0]?.delta?.content;
-          if (delta) send({ type: "delta", text: delta });
+          if (delta) emitDelta(delta);
           if (json?.usage) send({ type: "usage", usage: json.usage });
           const finish = json?.choices?.[0]?.finish_reason;
           if (finish) send({ type: "finish", reason: finish });
@@ -530,14 +558,47 @@ async function pipeStreamingText(
   }
 }
 
+// Streams a model's answer with a server-side stall watchdog. If no first
+// token arrives within STREAM_FIRST_TOKEN_TIMEOUT_MS (or the stream goes idle
+// mid-answer), the upstream is aborted so the caller can try the next fallback
+// model. Returns whether any content was emitted: once bytes have reached the
+// client, a later failure is swallowed (partial answer beats duplicating it
+// with a fallback), so callers should only fall back when emitted is false.
 async function streamTextEvents(
   send: SendEvent,
   body: RequestBody,
   modelId: string,
   messages: ChatMessage[]
-) {
-  const opened = await openStreamingUpstream(body, modelId, messages);
-  await pipeStreamingText(send, opened);
+): Promise<{ emitted: boolean }> {
+  const controller = new AbortController();
+  let emitted = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const arm = (ms: number) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), ms);
+  };
+
+  arm(STREAM_FIRST_TOKEN_TIMEOUT_MS);
+  try {
+    const opened = await openStreamingUpstream(body, modelId, messages, controller.signal);
+    await pipeStreamingText(send, opened, () => {
+      emitted = true;
+      arm(STREAM_IDLE_TIMEOUT_MS);
+    });
+    return { emitted };
+  } catch (err) {
+    if (emitted) {
+      // Partial content already streamed to the user — don't fall back or it
+      // would duplicate the answer. Treat as a completed (if truncated) result.
+      return { emitted };
+    }
+    if (controller.signal.aborted) {
+      throw new UpstreamError(`${getModelAlias(modelId)} produced no output before timeout.`, 504);
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function judgePrompt(): string {
@@ -814,24 +875,33 @@ async function runSingle(body: RequestBody): Promise<Response> {
     let contextBudget = INITIAL_CONTEXT_BUDGET;
     let lastError: UpstreamError | null = null;
 
-    for (const modelId of models) {
-      try {
-        const effectiveResponses = truncateResponses(body.responses, contextBudget);
-        const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
-        await streamTextEvents(send, body, modelId, messages);
-        return;
-      } catch (err) {
-        const ue =
-          err instanceof UpstreamError
-            ? err
-            : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
-        lastError = ue;
-        // Shrink context budget for the next attempt when the model rejected
-        // the request due to size, so the fallback has a better chance.
-        if (isContextOverflow(ue)) {
-          contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+    // Keep the connection alive while we wait for the first token / fall back.
+    const stopHeartbeat = startHeartbeat(send);
+    try {
+      for (const modelId of models) {
+        try {
+          const effectiveResponses = truncateResponses(body.responses, contextBudget);
+          const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
+          const { emitted } = await streamTextEvents(send, body, modelId, messages);
+          if (!emitted) {
+            throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
+          }
+          return;
+        } catch (err) {
+          const ue =
+            err instanceof UpstreamError
+              ? err
+              : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
+          lastError = ue;
+          // Shrink context budget for the next attempt when the model rejected
+          // the request due to size, so the fallback has a better chance.
+          if (isContextOverflow(ue)) {
+            contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+          }
         }
       }
+    } finally {
+      stopHeartbeat();
     }
 
     throw lastError ?? new UpstreamError("Consensus failed.", 502);
@@ -1027,19 +1097,31 @@ async function runCouncil(body: RequestBody): Promise<Response> {
 
     send({ type: "round_start", round: "synthesis", title: "Judge's verdict" });
     let lastError: UpstreamError | null = null;
-    for (const modelId of moderatorModelIds(body, participants)) {
-      try {
-        sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
-        await streamTextEvents(send, body, modelId, [
-          { role: "system", content: councilSynthesisPrompt(qualityModeFor(body.qualityMode)) },
-          { role: "user", content: councilBlock },
-        ]);
-        sendCouncilStatus(send, modelId, "done", "synthesis", "Verdict complete");
-        return;
-      } catch (err: unknown) {
-        lastError = err instanceof UpstreamError ? err : new UpstreamError(errorMessage(err), 502);
-        sendCouncilStatus(send, modelId, "failed", "synthesis", lastError.message);
+    // Keep the client connection alive while we wait for the synthesizer's
+    // first token and, if needed, work through the moderator fallback chain.
+    const stopHeartbeat = startHeartbeat(send);
+    try {
+      for (const modelId of moderatorModelIds(body, participants)) {
+        try {
+          sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
+          const { emitted } = await streamTextEvents(send, body, modelId, [
+            { role: "system", content: councilSynthesisPrompt(qualityModeFor(body.qualityMode)) },
+            { role: "user", content: councilBlock },
+          ]);
+          if (!emitted) {
+            // Upstream closed without producing any verdict text — treat as a
+            // failure so the next moderator fallback gets a turn.
+            throw new UpstreamError(`${getModelAlias(modelId)} returned an empty verdict.`, 502);
+          }
+          sendCouncilStatus(send, modelId, "done", "synthesis", "Verdict complete");
+          return;
+        } catch (err: unknown) {
+          lastError = err instanceof UpstreamError ? err : new UpstreamError(errorMessage(err), 502);
+          sendCouncilStatus(send, modelId, "failed", "synthesis", lastError.message);
+        }
       }
+    } finally {
+      stopHeartbeat();
     }
 
     throw lastError ?? new UpstreamError("Model council synthesis failed.", 502);

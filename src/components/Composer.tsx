@@ -46,6 +46,7 @@ export function Composer({ convId }: { convId: string }) {
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhanceCtrlRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const enabledSettings: ProviderToggleSettings = {
     groqEnabled,
     geminiEnabled,
@@ -114,12 +115,36 @@ export function Composer({ convId }: { convId: string }) {
     : !!visibleSelectedModels.some((m) => conv?.threads[m]?.messages.some((msg) => msg.pending));
   const focusedInfo = focusedModel ? getModel(focusedModel) : undefined;
 
+  const autoGrow = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    const base = 38;
+    el.style.height = `${Math.min(el.scrollHeight, base * 3)}px`;
+  };
+
+  const syncTextareaHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    if (!text) {
+      el.style.height = "";
+      return;
+    }
+
+    autoGrow(el);
+  };
+
+  const setTextAndResize = (nextText: string) => {
+    setText(nextText);
+    requestAnimationFrame(syncTextareaHeight);
+  };
+
   const onSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const t = text.trim();
     if (!t || anyPending) return;
     sendPromptToAll(convId, t);
     setText("");
+    requestAnimationFrame(syncTextareaHeight);
   };
 
   const onStop = () => {
@@ -137,7 +162,7 @@ export function Composer({ convId }: { convId: string }) {
     enhanceCtrlRef.current = ctrl;
     try {
       const improved = await enhancePrompt(enhanceModel, t, ctrl.signal);
-      if (improved) setText(improved);
+      if (improved) setTextAndResize(improved);
     } catch (err) {
       if ((err as { name?: string })?.name !== "AbortError") {
         setEnhanceError(err instanceof Error ? err.message : "Could not enhance prompt.");
@@ -214,8 +239,9 @@ export function Composer({ convId }: { convId: string }) {
           {enhancing ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
         </button>
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => setTextAndResize(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

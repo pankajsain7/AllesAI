@@ -124,8 +124,7 @@ export function HeroComposer({ convId }: { convId: string }) {
     if (!t) return;
     sendPromptToAll(convId, t);
     setText("");
-    const el = textareaRef.current;
-    if (el) el.style.height = "";
+    requestAnimationFrame(syncTextareaHeight);
   };
 
   // Auto-grow the input box vertically as a longer prompt is typed/pasted,
@@ -134,6 +133,23 @@ export function HeroComposer({ convId }: { convId: string }) {
     el.style.height = "auto";
     const base = 38; // single-line height (px)
     el.style.height = `${Math.min(el.scrollHeight, base * 3)}px`;
+  };
+
+  const syncTextareaHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    if (!text) {
+      el.style.height = "";
+      return;
+    }
+
+    autoGrow(el);
+  };
+
+  const setTextAndResize = (nextText: string) => {
+    setText(nextText);
+    requestAnimationFrame(syncTextareaHeight);
   };
 
   const enhanceModel = visibleSelectedModels[0] ?? null;
@@ -147,7 +163,7 @@ export function HeroComposer({ convId }: { convId: string }) {
     enhanceCtrlRef.current = ctrl;
     try {
       const improved = await enhancePrompt(enhanceModel, t, ctrl.signal);
-      if (improved) setText(improved);
+      if (improved) setTextAndResize(improved);
     } catch (err) {
       if ((err as { name?: string })?.name !== "AbortError") {
         setEnhanceError(err instanceof Error ? err.message : "Could not enhance prompt.");
@@ -245,10 +261,7 @@ export function HeroComposer({ convId }: { convId: string }) {
               ref={textareaRef}
               autoFocus
               value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                autoGrow(e.target);
-              }}
+              onChange={(e) => setTextAndResize(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

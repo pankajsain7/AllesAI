@@ -7,6 +7,8 @@ import {
   ChevronRight,
   CheckCircle2,
   Loader2,
+  Maximize2,
+  Minimize2,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -37,6 +39,7 @@ export function SynthesisHistoryButton({
   const conv = useChat((s) => s.conversations[convId]);
   const [tab, setTab] = useState<SharedResultType>("consensus");
   const [open, setOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const results = useMemo(
     () => [...(conv?.sharedResults ?? [])].sort((a, b) => b.createdAt - a.createdAt),
@@ -85,7 +88,13 @@ export function SynthesisHistoryButton({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-[min(440px,calc(100vw-1rem))] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl">
+        <div
+          className={
+            fullscreen
+              ? "fixed inset-3 z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl"
+              : "absolute right-0 top-full z-40 mt-2 w-[min(440px,calc(100vw-1rem))] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl"
+          }
+        >
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg-soft)] px-3 py-2">
             <div className="inline-flex rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5">
               <TabButton
@@ -103,15 +112,29 @@ export function SynthesisHistoryButton({
                 onClick={() => setTab("council")}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:bg-[var(--bg)] hover:text-[var(--fg)]"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFullscreen((value) => !value)}
+                className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg)] hover:text-[var(--fg)]"
+                title={fullscreen ? "Exit fullscreen" : "Open fullscreen"}
+                aria-label={fullscreen ? "Exit fullscreen" : "Open fullscreen"}
+              >
+                {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFullscreen(false);
+                  setOpen(false);
+                }}
+                className="rounded px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:bg-[var(--bg)] hover:text-[var(--fg)]"
+              >
+                Close
+              </button>
+            </div>
           </div>
-          <div className="max-h-[70vh] space-y-2 overflow-y-auto p-2">
+          <div className={fullscreen ? "flex-1 space-y-2 overflow-y-auto p-2" : "max-h-[70vh] space-y-2 overflow-y-auto p-2"}>
             {visibleResults.map((result) => (
               <SharedResultCard key={result.id} result={result} compact />
             ))}
@@ -328,18 +351,24 @@ function CouncilDebate({ result }: { result: SharedResult }) {
     (result.statuses?.length ?? 0) > 0 ||
     (result.rounds?.length ?? 0) > 0 ||
     (result.notes?.length ?? 0) > 0;
+  const hasSummaryDetails =
+    result.confidence ||
+    result.decisionSummary ||
+    (result.scores?.length ?? 0) > 0 ||
+    (result.judge?.rankings.length ?? 0) > 0 ||
+    Boolean(result.content.trim());
   const showProcessDetails = result.pending || showProcess;
+  const finalVerdict = extractCouncilFinalVerdict(result.content);
 
   return (
     <>
-      {(result.content.trim() || result.pending) && (
+      {(finalVerdict || result.pending) && (
         <div className="rounded-md border border-[var(--border)] bg-[var(--bg-soft)] p-2">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-muted)]">
             Final answer
           </div>
-          <QualitySnapshot result={result} />
-          {result.content.trim() ? (
-            <Markdown source={result.content} />
+          {finalVerdict ? (
+            <Markdown source={finalVerdict} />
           ) : (
             <div className="flex items-center gap-2 text-xs text-[var(--fg-muted)]">
               <Loader2 size={13} className="animate-spin" />
@@ -349,7 +378,7 @@ function CouncilDebate({ result }: { result: SharedResult }) {
         </div>
       )}
 
-      {!result.pending && hasProcess && (
+      {!result.pending && (hasProcess || hasSummaryDetails) && (
         <div className="flex items-center justify-between gap-2">
           <div className="text-[11px] text-[var(--fg-muted)]">
             {(result.notes ?? []).length} debate note{(result.notes ?? []).length === 1 ? "" : "s"}
@@ -477,6 +506,12 @@ function buildAgentMap(result: SharedResult): Map<string, string> {
 
 function CouncilProcess({ result }: { result: SharedResult }) {
   const agentMap = useMemo(() => buildAgentMap(result), [result.notes]);
+  const finalVerdict = extractCouncilFinalVerdict(result.content);
+  const hasExtraSummary =
+    result.confidence ||
+    result.decisionSummary ||
+    (result.scores?.length ?? 0) > 0 ||
+    (result.judge?.rankings.length ?? 0) > 0;
 
   // Show a simple "debating" spinner while any debater is still running.
   const anyRunning = (result.statuses ?? []).some(
@@ -485,6 +520,24 @@ function CouncilProcess({ result }: { result: SharedResult }) {
 
   return (
     <div className="space-y-2">
+      {(hasExtraSummary || result.content.trim()) && (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-2">
+          <div className="mb-1 text-[11px] font-semibold text-[var(--fg)]">How it decided</div>
+          <QualitySnapshot result={result} />
+          {result.content.trim() && (
+            <details className="group mt-2 overflow-hidden rounded-md border border-[var(--border)]">
+              <summary className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[11px] text-[var(--fg-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--fg)] [&::-webkit-details-marker]:hidden">
+                <ChevronRight size={12} className="transition-transform group-open:rotate-90" />
+                Full verdict report
+              </summary>
+              <div className="border-t border-[var(--border)] px-2 py-2 text-xs">
+                <Markdown source={finalVerdict || result.content} />
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
       {result.pending && anyRunning && (
         <div className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]">
           <Loader2 size={11} className="animate-spin" />
@@ -544,4 +597,22 @@ function CouncilRoundBlock({
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function extractCouncilFinalVerdict(content: string): string {
+  const raw = content.trim();
+  if (!raw) return "";
+
+  const labelMatch = raw.match(/(^|\n)(#{1,6}\s*)?Final Verdict\b/i);
+  if (labelMatch?.index !== undefined) {
+    return raw.slice(labelMatch.index).trim();
+  }
+
+  // Fallback: hide scorecard-heavy preamble by starting from the first major heading.
+  const headingMatch = raw.match(/(^|\n)#{1,6}\s+/);
+  if (headingMatch?.index !== undefined) {
+    return raw.slice(headingMatch.index).trim();
+  }
+
+  return raw;
 }

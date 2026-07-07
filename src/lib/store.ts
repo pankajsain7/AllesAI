@@ -597,7 +597,43 @@ function legacyConsensusToSharedResults(messages?: Message[]): SharedResult[] {
   }));
 }
 
+function normalizeMessageModelId(modelId?: string): string | undefined {
+  if (!modelId) return modelId;
+  return normalizeModelId(modelId) ?? modelId;
+}
+
+function normalizeConversationThreads(
+  conversation: Conversation
+): Record<string, ModelThread> {
+  const nextThreads: Record<string, ModelThread> = {};
+
+  for (const [threadId, thread] of Object.entries(conversation.threads ?? {})) {
+    const normalizedThreadId = normalizeModelId(threadId) ?? threadId;
+    const normalizedMessages = (thread.messages ?? []).map((message) =>
+      message.modelId
+        ? { ...message, modelId: normalizeMessageModelId(message.modelId) ?? normalizedThreadId }
+        : message
+    );
+
+    const existing = nextThreads[normalizedThreadId];
+    if (existing) {
+      existing.messages = [...existing.messages, ...normalizedMessages].sort(
+        (a, b) => a.createdAt - b.createdAt
+      );
+      continue;
+    }
+
+    nextThreads[normalizedThreadId] = {
+      modelId: normalizedThreadId,
+      messages: normalizedMessages,
+    };
+  }
+
+  return nextThreads;
+}
+
 function sanitizeConversation(conversation: Conversation): Conversation {
+  const normalizedThreads = normalizeConversationThreads(conversation);
   const selectedModels = dedupeModelIdsByFamily(
     Array.from(
       new Set(
@@ -609,20 +645,20 @@ function sanitizeConversation(conversation: Conversation): Conversation {
   );
 
   const nextSelectedModels = selectedModels.length > 0 ? selectedModels : DEFAULT_SELECTED_MODELS;
-  const threads: Record<string, ModelThread> = {};
+  const threads: Record<string, ModelThread> = { ...normalizedThreads };
 
   for (const modelId of nextSelectedModels) {
     const sourceThread =
-      conversation.threads[modelId] ??
+      normalizedThreads[modelId] ??
       findLegacyModelIds(modelId)
-        .map((legacyId) => conversation.threads[legacyId])
+        .map((legacyId) => normalizedThreads[legacyId])
         .find(Boolean);
     threads[modelId] = sourceThread
       ? {
           ...sourceThread,
           modelId,
           messages: sourceThread.messages.map((message) =>
-            message.modelId ? { ...message, modelId: normalizeModelId(message.modelId) ?? modelId } : message
+            message.modelId ? { ...message, modelId: normalizeMessageModelId(message.modelId) ?? modelId } : message
           ),
         }
       : { modelId, messages: [] };

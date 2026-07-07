@@ -13,7 +13,22 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
-## [2026-07-06] Remove retired cogito-2.1:671b model references
+## [2026-07-07] Add fullscreen toggle to Results panel
+**Changed:** `src/components/SharedResultsLane.tsx`
+**Why:** User requested the same double-arrow fullscreen control in the Results popup header (near Close), not just in the Model Council modal.
+**Summary:** Added a header button that toggles the Results panel between anchored popup mode and fullscreen mode, using maximize/minimize (double-arrow) icons. The content area now expands to full height in fullscreen, and close resets fullscreen before closing.
+
+## [2026-07-07] Simplify council output and add fullscreen modal control
+**Changed:** `src/components/SharedResultsLane.tsx`, `src/components/ConsensusButton.tsx`
+**Why:** User requested a cleaner council view: show only the final verdict in the main panel, move model/scorecard details under "How it decided", and add a fullscreen toggle near the modal close button.
+**Summary:** Council cards now render only the final verdict section in the primary answer area and hide scorecard/model metadata from that surface. "How it decided" now contains quality snapshot details (including judge scorecard) plus an expandable full verdict report. Added a header control next to close to toggle fullscreen/exit-fullscreen for the Model Council modal.
+
+## [2026-07-07] Fix Model council failing at the verdict stage
+**Changed:** `src/app/api/consensus/route.ts`, `src/components/ConsensusButton.tsx`
+**Why:** Council produced all debate notes and the judge scorecard, then failed with "No response after 60s". The gap between the last council note and the synthesizer's first token (server-side non-streaming judge scoring + waiting for the verdict's first token) sent no bytes, so the client's connection watchdog aborted the whole request — which also killed the server's moderator fallback chain before it could try another model.
+**Summary:** Added a server-side stall watchdog to `streamTextEvents` (aborts a synthesizer that yields no first token within `STREAM_FIRST_TOKEN_TIMEOUT_MS`, or goes idle mid-stream, so the caller falls back itself) and made it return `{ emitted }` so partial answers aren't duplicated by a fallback. Added `startHeartbeat`/`{type:"ping"}` events emitted every `HEARTBEAT_INTERVAL_MS` around the judge + synthesis phase in both `runCouncil` and `runSingle` so the client watchdog sees liveness while the server works through fallbacks. `openStreamingUpstream`/`pipeStreamingText` now accept a signal / `onDelta` callback. Client recognises the `ping` event (each read already resets its watchdog). Verified with `tsc --noEmit`.
+
+
 **Changed:** `src/lib/model-rules.ts`, `src/lib/models.ts`, `src/lib/providers.ts`, `src/components/ProviderIcon.tsx`, `src/components/ConsensusButton.tsx`
 **Why:** `ollama-cloud/cogito-2.1:671b` returned HTTP 410 (retired). All references must be removed so it no longer appears in priority lists or gets resolved.
 **Summary:** Removed `cogito` from `CONSENSUS_PRIORITY_MODEL_IDS`, `COUNCIL_PRIMARY_MODEL_IDS`, and `JUDGE_MODEL_IDS` in `model-rules.ts`; removed the cogito alias in `getModelAlias`; removed the `cogito` dynamic model generator block in `models.ts`; removed `"cogito"` from the `ProviderKey` union type, `PROVIDERS` record, and `PROVIDER_ORDER` in `providers.ts`; removed the `cogito: "CG"` monogram entry in `ProviderIcon.tsx`; removed the cogito-specific local-model name mapping in `ConsensusButton.tsx:findLocalModelName`. Verified with `tsc --noEmit`.

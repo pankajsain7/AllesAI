@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Sparkles, Users, X } from "lucide-react";
+import { Maximize2, Minimize2, Sparkles, Users, X } from "lucide-react";
 import {
   filterEnabledModelIds,
   getEnabledRoutes,
@@ -48,6 +48,7 @@ type ConsensusStreamEvent =
   | { type: "status"; modelId?: string; model?: string; status?: string; round?: string; message?: string; replacementModelId?: string; replacementModel?: string }
   | { type: "round_start"; round?: string; title?: string }
   | { type: "council_note"; round?: string; roundTitle?: string; modelId?: string; model?: string; text?: string }
+  | { type: "ping" }
   | { type: "error"; message?: string }
   | { type: "done" };
 
@@ -109,6 +110,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runMode, setRunMode] = useState<ConsensusMode>("single");
+  const [fullscreen, setFullscreen] = useState(false);
 
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
   const activeResult = useChat((s) =>
@@ -297,6 +299,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
     setError(null);
     setText("");
     setSaved(false);
+    setFullscreen(false);
     setOpen(true);
 
     if (hasPendingModels) {
@@ -541,15 +544,24 @@ export function ConsensusButton({ convId }: { convId: string }) {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          className={
+            "fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm " +
+            (fullscreen ? "items-stretch justify-stretch p-2" : "items-center justify-center p-4")
+          }
           onClick={() => {
             abortRef.current?.abort();
+            setFullscreen(false);
             setOpen(false);
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl"
+            className={
+              "flex w-full flex-col overflow-hidden border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl " +
+              (fullscreen
+                ? "max-h-[calc(100vh-1rem)] max-w-none rounded-xl"
+                : "max-h-[85vh] max-w-2xl rounded-2xl")
+            }
           >
             <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
               <div className="flex items-center gap-2">
@@ -567,16 +579,28 @@ export function ConsensusButton({ convId }: { convId: string }) {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  abortRef.current?.abort();
-                  setOpen(false);
-                }}
-                className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
-                title="Close"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setFullscreen((value) => !value)}
+                  className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
+                  title={fullscreen ? "Exit fullscreen" : "Open fullscreen"}
+                >
+                  {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    setFullscreen(false);
+                    setOpen(false);
+                  }}
+                  className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-5 py-2">
