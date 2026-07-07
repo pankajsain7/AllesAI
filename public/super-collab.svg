@@ -1,0 +1,58 @@
+<svg width="560" height="120" viewBox="0 0 560 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Model collaboration pipeline</title>
+  <desc id="desc">Three model nodes merge into a verifier node and produce one best answer node.</desc>
+
+  <defs>
+    <linearGradient id="nodeFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F6F8FC"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2B7FFF"/>
+      <stop offset="1" stop-color="#23B2FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="200%" height="200%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0A1020" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#7A8599"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="558" height="118" rx="16" fill="#FFFFFF" fill-opacity="0.72" stroke="#D7DEEA"/>
+
+  <!-- Model nodes -->
+  <g filter="url(#shadow)">
+    <rect x="26" y="20" width="120" height="26" rx="13" fill="url(#nodeFill)" stroke="#C8D2E3"/>
+    <rect x="26" y="48" width="120" height="26" rx="13" fill="url(#nodeFill)" stroke="#C8D2E3"/>
+    <rect x="26" y="76" width="120" height="26" rx="13" fill="url(#nodeFill)" stroke="#C8D2E3"/>
+  </g>
+
+  <text x="86" y="37" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#2A3345">Model A</text>
+  <text x="86" y="65" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#2A3345">Model B</text>
+  <text x="86" y="93" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#2A3345">Model C</text>
+
+  <!-- Merge / verifier node -->
+  <g filter="url(#shadow)">
+    <rect x="230" y="34" width="130" height="52" rx="14" fill="url(#nodeFill)" stroke="#9FC2FF"/>
+  </g>
+  <circle cx="247" cy="60" r="7" fill="url(#accent)"/>
+  <path d="M243.7 60.2L246.1 62.5L250.6 57.8" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="297" y="55" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#2A3345">Cross-check</text>
+  <text x="297" y="71" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#6B7588">consensus synthesis</text>
+
+  <!-- Final answer node -->
+  <g filter="url(#shadow)">
+    <rect x="430" y="42" width="104" height="36" rx="18" fill="url(#accent)"/>
+  </g>
+  <text x="482" y="64" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">Best answer</text>
+
+  <!-- Connectors -->
+  <path d="M146 33C175 33 185 49 230 55" stroke="#7A8599" stroke-width="1.8" fill="none" marker-end="url(#arrow)"/>
+  <path d="M146 61C177 61 190 60 230 60" stroke="#7A8599" stroke-width="1.8" fill="none" marker-end="url(#arrow)"/>
+  <path d="M146 89C175 89 185 71 230 65" stroke="#7A8599" stroke-width="1.8" fill="none" marker-end="url(#arrow)"/>
+  <path d="M360 60H430" stroke="#7A8599" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Caption -->
+  <text x="280" y="111" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#74819A">Multiple models collaborate under the hood</text>
+</svg>

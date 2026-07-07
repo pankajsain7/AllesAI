@@ -55,7 +55,7 @@ type ResponseEntry = {
 type RequestBody = {
   prompt: string;
   responses: ResponseEntry[];
-  mode?: "single" | "council";
+  mode?: "single" | "council" | "super";
   qualityMode?: QualityMode;
   consensusModel?: string;
   candidateModels?: string[];
@@ -210,6 +210,22 @@ ${mode === "deep" ? DEEP_SECTIONS : QUICK_SECTIONS}`;
 
 function qualityModeFor(mode?: QualityMode): QualityMode {
   return mode === "deep" ? "deep" : "quick";
+}
+
+// Super mode synthesis: read the candidate answers and return ONLY the single
+// best answer to the user. No analysis sections, no model names, no meta talk
+// about how the answer was produced — the orchestration is fully under the hood.
+function superSynthesisPrompt(): string {
+  return `You are a single expert assistant. Several draft answers to the user's question are provided as private working material.
+Silently evaluate them for correctness, evidence, completeness, and clarity, then produce ONE definitive best answer for the user.
+Resolve conflicts on the merits — not by majority vote. Prefer specific, evidence-backed claims over vague or unsupported ones, and correct anything the drafts got wrong.
+${temporalGrounding()}
+
+Output rules (critical):
+- Reply with ONLY the final answer, written directly to the user in a natural, self-contained voice.
+- Never mention the drafts, other models, model names, "sources", judges, synthesis, scoring, or that multiple answers existed.
+- Do not add headings like "Why this is best", "Confidence", or "---" separators. Do not include any analysis section.
+- Format the answer well (markdown, code blocks, lists) when it helps, and cite web-backed facts with source numbers like [1] when web context was provided.`;
 }
 
 const COUNCIL_ROUNDS: CouncilRound[] = [
@@ -850,8 +866,12 @@ function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMe
   const solo = body.responses.length < 2;
   const block = formatResponseBlock(body.prompt, body.responses, body.webSearch);
   const content = judge ? `${block}\n\n${formatJudgeBlock(judge)}` : block;
+  const systemContent =
+    body.mode === "super"
+      ? superSynthesisPrompt()
+      : synthesisPrompt(qualityModeFor(body.qualityMode), solo);
   return [
-    { role: "system", content: synthesisPrompt(qualityModeFor(body.qualityMode), solo) },
+    { role: "system", content: systemContent },
     { role: "user", content },
   ];
 }

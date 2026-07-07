@@ -7,6 +7,7 @@ import {
   isApiProviderEnabled,
   useChat,
   useSettings,
+  SUPER_THREAD_ID,
   type ProviderToggleSettings,
 } from "@/lib/store";
 import { ArrowUp, Globe, Loader2, Sparkles, Square, X } from "lucide-react";
@@ -27,6 +28,8 @@ import {
 import { isRemovedModelName } from "@/lib/model-rules";
 
 export function Composer({ convId }: { convId: string }) {
+  const MIN_PROMPT_ROWS = 2;
+  const MAX_PROMPT_ROWS = 8;
   const conv = useChat((s) => s.conversations[convId]);
   const setFocusedModel = useChat((s) => s.setFocusedModel);
   const webSearch = useSettings((s) => s.webSearch);
@@ -110,22 +113,35 @@ export function Composer({ convId }: { convId: string }) {
     conv?.focusedModel && visibleSelectedModels.includes(conv.focusedModel)
       ? conv.focusedModel
       : null;
-  const anyPending = focusedModel
+  const isSuper = conv?.chatMode === "super";
+  const superPending =
+    isSuper && !!conv?.threads[SUPER_THREAD_ID]?.messages.some((msg) => msg.pending);
+  const anyPending = superPending || (focusedModel
     ? !!conv?.threads[focusedModel]?.messages.some((msg) => msg.pending)
-    : !!visibleSelectedModels.some((m) => conv?.threads[m]?.messages.some((msg) => msg.pending));
+    : !!visibleSelectedModels.some((m) => conv?.threads[m]?.messages.some((msg) => msg.pending)));
   const focusedInfo = focusedModel ? getModel(focusedModel) : undefined;
 
   const autoGrow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
-    const base = 38;
-    el.style.height = `${Math.min(el.scrollHeight, base * 3)}px`;
+    const styles = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 24;
+    const paddingY =
+      (Number.parseFloat(styles.paddingTop) || 0) +
+      (Number.parseFloat(styles.paddingBottom) || 0);
+    const borderY =
+      (Number.parseFloat(styles.borderTopWidth) || 0) +
+      (Number.parseFloat(styles.borderBottomWidth) || 0);
+    const minHeight = lineHeight * MIN_PROMPT_ROWS + paddingY + borderY;
+    const maxHeight = lineHeight * MAX_PROMPT_ROWS + paddingY + borderY;
+    const nextHeight = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight);
+    el.style.height = `${nextHeight}px`;
   };
 
-  const syncTextareaHeight = () => {
+  const syncTextareaHeight = (nextText: string) => {
     const el = textareaRef.current;
     if (!el) return;
 
-    if (!text) {
+    if (!nextText) {
       el.style.height = "";
       return;
     }
@@ -135,7 +151,7 @@ export function Composer({ convId }: { convId: string }) {
 
   const setTextAndResize = (nextText: string) => {
     setText(nextText);
-    requestAnimationFrame(syncTextareaHeight);
+    requestAnimationFrame(() => syncTextareaHeight(nextText));
   };
 
   const onSubmit = (e?: React.FormEvent) => {
@@ -144,7 +160,7 @@ export function Composer({ convId }: { convId: string }) {
     if (!t || anyPending) return;
     sendPromptToAll(convId, t);
     setText("");
-    requestAnimationFrame(syncTextareaHeight);
+    requestAnimationFrame(() => syncTextareaHeight(""));
   };
 
   const onStop = () => {
@@ -175,15 +191,6 @@ export function Composer({ convId }: { convId: string }) {
 
   return (
     <form onSubmit={onSubmit} className="border-t border-[var(--border)] bg-[var(--bg-soft)] px-4 pb-4 pt-3">
-      {conv?.chatMode === "auto" && visibleSelectedModels[0] && (
-        <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-md border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] text-[var(--accent)]">
-          <Sparkles size={11} />
-          <span className="font-medium">
-            Auto chose {getModel(visibleSelectedModels[0])?.label ?? visibleSelectedModels[0]}
-          </span>
-          <span className="text-[var(--fg-muted)]">- start a new chat to re-pick</span>
-        </div>
-      )}
       {focusedModel && (
         <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-md border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] text-[var(--accent)]">
           <span className="font-medium">Focused on {focusedInfo?.label ?? focusedModel}</span>
@@ -248,9 +255,9 @@ export function Composer({ convId }: { convId: string }) {
               onSubmit();
             }
           }}
-          placeholder={focusedModel ? "Continue chatting with the focused model..." : "Message all selected models..."}
-          rows={1}
-          className="block max-h-48 w-full flex-1 resize-none self-center bg-transparent py-1.5 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
+          placeholder={isSuper ? "Ask anything - get one best answer..." : focusedModel ? "Continue chatting with the focused model..." : "Message all selected models..."}
+          rows={2}
+          className="block w-full flex-1 resize-none self-center bg-transparent py-1.5 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
         />
         {anyPending ? (
           <button

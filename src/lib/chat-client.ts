@@ -1,8 +1,9 @@
 "use client";
 
-import { filterSelectableModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId } from "./store";
+import { filterSelectableModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId, SUPER_THREAD_ID } from "./store";
 import { isCloudOllamaModelId, isOllamaModelId, isOpenCodeModelId, type ModelInfo } from "./models";
 import { streamDraftKey, useStreamDrafts } from "./stream-drafts";
+import { markPromptSubmitted } from "./scroll-intent";
 
 // Per-model abort controllers for mid-stream stopping
 const activeControllers = new Map<string, AbortController>();
@@ -476,23 +477,24 @@ function autoRouterCandidates(): ModelInfo[] {
   return out;
 }
 
-const ROUTER_SYSTEM_PROMPT = [
-  "You are a router that selects the single best AI model to answer the user's question.",
+const MULTI_ROUTER_SYSTEM_PROMPT = [
+  "You are a router that ranks the AI models best suited to answer the user's question.",
   "Choose strictly from the provided candidate list, using each model's strengths and category.",
-  "Prefer reasoning/coding models for hard logic or code, vision models for images, and fast general models for simple chat.",
-  "Reply with ONLY the exact model id from the list - no quotes, labels, or explanation.",
+  "Prefer complementary picks: reasoning/coding models for hard logic or code, vision models for images, strong general models for everything else.",
+  "Reply with ONLY the exact model ids in ranked order, best first, separated by commas - no quotes, labels, or explanation.",
 ].join("\n");
 
-// Picks the best model id for a prompt by asking a fast model to classify it.
-// Falls back to the first candidate (or provided fallback) if routing fails.
-export async function pickBestModel(
+// Picks the N best distinct model ids for a prompt by asking a fast model to
+// rank the available candidates. Falls back to the first N candidates when
+// routing fails or returns too few matches. Used by super mode to choose the
+// two models that will collaborate on the answer.
+export async function pickBestModels(
   prompt: string,
-  fallback?: string,
+  count: number,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<string[]> {
   const candidates = autoRouterCandidates();
-  if (candidates.length === 0) return fallback ?? "";
-  if (candidates.length === 1) return candidates[0].id;
+  if (candidates.length <= count) return candidates.map((c) => c.id);
 
   const settings = useSettings.getState();
   const routerModel =
@@ -503,29 +505,43 @@ export async function pickBestModel(
   const list = candidates
     .map((c) => `- ${c.id} | ${c.label} | ${c.category}${c.bestFor ? ` | best for: ${c.bestFor}` : ""}`)
     .join("\n");
-  const userMessage = `Candidate models:\n${list}\n\nUser question:\n${prompt}\n\nBest model id:`;
+  const userMessage = `Candidate models:\n${list}\n\nUser question:\n${prompt}\n\nBest ${count} model ids, ranked, comma-separated:`;
 
+  const picked: string[] = [];
   try {
     const raw = await callModelOnce(
       routerModel,
       [
-        { role: "system", content: ROUTER_SYSTEM_PROMPT },
+        { role: "system", content: MULTI_ROUTER_SYSTEM_PROMPT },
         { role: "user", content: userMessage },
       ],
       signal
     );
     const answer = raw.trim();
-    // Prefer an exact id match, then a substring match.
-    const exact = candidates.find((c) => c.id === answer);
-    if (exact) return exact.id;
-    const contained = candidates.find((c) => answer.includes(c.id));
-    if (contained) return contained.id;
-    const byLabel = candidates.find((c) => answer.toLowerCase().includes(c.label.toLowerCase()));
-    if (byLabel) return byLabel.id;
+    for (const candidate of candidates) {
+      if (picked.length >= count) break;
+      if (answer.includes(candidate.id) && !picked.includes(candidate.id)) {
+        picked.push(candidate.id);
+      }
+    }
+    // Preserve the router's ranking order when it emitted ids in a clear order.
+    const ordered = answer
+      .split(/[\s,]+/)
+      .map((token) => candidates.find((c) => c.id === token)?.id)
+      .filter((id): id is string => Boolean(id));
+    const rankedUnique = Array.from(new Set([...ordered, ...picked]));
+    if (rankedUnique.length >= count) return rankedUnique.slice(0, count);
+    picked.splice(0, picked.length, ...rankedUnique);
   } catch {
-    // fall through to fallback
+    // fall through to fill from the candidate order
   }
-  return fallback ?? candidates[0].id;
+
+  // Backfill with the highest-priority remaining candidates.
+  for (const candidate of candidates) {
+    if (picked.length >= count) break;
+    if (!picked.includes(candidate.id)) picked.push(candidate.id);
+  }
+  return picked.slice(0, count);
 }
 
 // Calls a single model via /api/chat and returns its full text response.
@@ -594,9 +610,12 @@ export function sendPromptToAll(
   const conv = state.conversations[convId];
   if (!conv) return ctrl;
 
-  // Auto mode picks the single best model, then chats with just that one.
-  if (conv.chatMode === "auto") {
-    void runAutoPrompt(convId, prompt, ctrl);
+  markPromptSubmitted(convId);
+
+  // Super mode orchestrates the two best models under the hood and streams back
+  // one synthesized answer (no model names, auto prompt-enhancement + search).
+  if (conv.chatMode === "super") {
+    void runSuperPrompt(convId, prompt, ctrl);
     return ctrl;
   }
 
@@ -610,54 +629,219 @@ export function sendPromptToAll(
   return ctrl;
 }
 
-// Auto mode: route the first message to the best model, then reuse it so the
-// conversation stays coherent. A new chat re-picks for the next question.
-async function runAutoPrompt(convId: string, prompt: string, ctrl: AbortController) {
+// Super mode: the whole pipeline runs silently and streams a single best answer
+// into one virtual thread. Steps: (1) web-search ONLY when the question needs
+// fresh facts (prompt enhancement is an optional helper that just sharpens the
+// search query — it never changes the question), (2) pick the two best
+// available models for this question, (3) get both answers on the REAL question
+// with full conversation context, (4) synthesize them into one clean answer
+// with no model names or analysis sections. Grounding mirrors consensus mode.
+async function runSuperPrompt(convId: string, prompt: string, ctrl: AbortController) {
   const settings = useSettings.getState();
-  const conv = useChat.getState().conversations[convId];
+  const state = useChat.getState();
+  const conv = state.conversations[convId];
   if (!conv) return;
-  const enabledSelected = filterSelectableModelIds(conv.selectedModels, settings);
-  const hasAnswers = enabledSelected.some((id) =>
-    (conv.threads[id]?.messages ?? []).some((m) => m.role === "assistant")
-  );
 
-  // Continuing an auto chat: keep the chosen model, skip routing for low latency.
-  if (enabledSelected.length >= 1 && hasAnswers) {
-    useChat.getState().addUserMessage(convId, prompt, [enabledSelected[0]]);
-    streamTargets(convId, prompt, [enabledSelected[0]], ctrl, settings);
-    return;
+  state.addUserMessage(convId, prompt, [SUPER_THREAD_ID]);
+  const msgId = state.startAssistant(convId, SUPER_THREAD_ID, "thinking");
+
+  const streamKey = `${convId}:${SUPER_THREAD_ID}`;
+  const localCtrl = new AbortController();
+  activeControllers.set(streamKey, localCtrl);
+  ctrl.signal.addEventListener("abort", () => localCtrl.abort());
+  if (ctrl.signal.aborted) localCtrl.abort();
+  const signal = localCtrl.signal;
+
+  const draftKey = streamDraftKey(convId, SUPER_THREAD_ID, msgId);
+  useStreamDrafts.getState().clearDraft(draftKey);
+  const draft = createDraftWriter(draftKey);
+
+  let finalized = false;
+  const finalize = (patch: Partial<Message>) => {
+    if (finalized) return;
+    finalized = true;
+    draft.flush();
+    useChat.getState().finishAssistant(convId, SUPER_THREAD_ID, msgId, {
+      content: draft.getContent(),
+      ...patch,
+    });
+    draft.clear();
+    if (activeControllers.get(streamKey) === localCtrl) activeControllers.delete(streamKey);
+  };
+
+  const setStatus = (status: Message["status"]) =>
+    useChat.getState().setAssistantStatus(convId, SUPER_THREAD_ID, msgId, status);
+  const fail = (message: string) => finalize({ error: message, pending: false });
+
+  // A stop (from the column or "stop all") finalizes the message with whatever
+  // was streamed so far, instead of leaving it stuck as pending.
+  localCtrl.signal.addEventListener("abort", () => finalize({}));
+
+  try {
+    const candidates = autoRouterCandidates();
+    if (candidates.length === 0) {
+      fail("No models are available. Enable a provider in Settings to use Super mode.");
+      return;
+    }
+
+    // 1) Web search is an ADDITIONAL step, only when the question needs fresh
+    //    facts (auto-detected) or the user turned it on. Prompt enhancement is
+    //    EXTRA and non-destructive: it is used only to sharpen the search query,
+    //    never to alter the actual question the models answer. This keeps the
+    //    answer grounded in what the user really asked (no context drift).
+    let webContext: WebContext | undefined;
+    if (getWebSearchMode(prompt, settings) !== "off") {
+      setStatus("searching");
+      let searchQuery = prompt;
+      // Prompt enhancement only helps short/vague prompts. Skip it for longer
+      // prompts (>= 100 chars) that already carry enough detail to search well.
+      if (prompt.trim().length < 100) {
+        const enhancerModel =
+          normalizeModelId(settings.consensusModel) &&
+          candidates.some((c) => c.id === normalizeModelId(settings.consensusModel))
+            ? (normalizeModelId(settings.consensusModel) as string)
+            : candidates[0].id;
+        try {
+          const improved = await enhancePrompt(enhancerModel, prompt, signal);
+          if (improved && improved.trim()) searchQuery = improved.trim();
+        } catch {
+          // enhancement is optional — fall back to the raw prompt as the query
+        }
+      }
+      if (signal.aborted) return;
+      try {
+        webContext = await fetchWebContext(searchQuery, signal);
+      } catch {
+        // search is best-effort in super mode — continue without it
+      }
+    }
+    if (signal.aborted) return;
+    setStatus("thinking");
+
+    // 2) Pick the two best models for this question (based on the real prompt).
+    const picked = await pickBestModels(prompt, 2, signal);
+    if (signal.aborted) return;
+    if (picked.length === 0) {
+      fail("Could not select models for Super mode.");
+      return;
+    }
+
+    // 3) Ask each picked model the ACTUAL question with full conversation
+    //    context (mirrors normal chat + consensus, so answers stay on-topic).
+    //    Web context, when present, is attached as extra retrieval material.
+    const thread = useChat.getState().conversations[convId]?.threads[SUPER_THREAD_ID];
+    const history = (thread?.messages ?? []).filter(
+      (m) => !(m.role === "assistant" && m.pending)
+    );
+    const modelMessages = toApiMessages(history, settings.systemPrompt, webContext);
+
+    const settled = await Promise.allSettled(
+      picked.map((modelId) => callModelOnce(modelId, modelMessages, signal))
+    );
+    if (signal.aborted) return;
+
+    const answers: Array<{ model: string; content: string }> = [];
+    for (let i = 0; i < settled.length; i += 1) {
+      const result = settled[i];
+      if (result.status === "fulfilled" && result.value.trim()) {
+        answers.push({ model: picked[i], content: result.value });
+      }
+    }
+    if (answers.length === 0) {
+      const firstError = settled.find(
+        (r): r is PromiseRejectedResult => r.status === "rejected"
+      );
+      fail(
+        firstError
+          ? firstError.reason instanceof Error
+            ? firstError.reason.message
+            : String(firstError.reason)
+          : "No model produced an answer."
+      );
+      return;
+    }
+
+    // 4) Synthesize the answers into one clean best answer via the consensus
+    //    endpoint's "super" mode. Grounded on the REAL question + the real
+    //    answers, exactly like consensus (answer only, no names, no sections).
+    const synthesizer =
+      normalizeModelId(settings.consensusModel) &&
+      candidates.some((c) => c.id === normalizeModelId(settings.consensusModel))
+        ? (normalizeModelId(settings.consensusModel) as string)
+        : candidates.find((c) => c.apiProvider === "gemini")?.id ?? candidates[0].id;
+    const fallbackModels = Array.from(
+      new Set([...picked, ...candidates.map((c) => c.id)])
+    ).filter((id) => id !== synthesizer);
+
+    const res = await fetch("/api/consensus", {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        responses: answers,
+        mode: "super",
+        qualityMode: "quick",
+        consensusModel: synthesizer,
+        fallbackModels,
+        webSearch: Boolean(webContext),
+        apiKey: settings.apiKey || undefined,
+        geminiApiKey: settings.geminiApiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
+        ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+        ollamaApiKey: settings.ollamaApiKey || undefined,
+        ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      const raw = await res.text().catch(() => res.statusText);
+      fail(extractApiError(raw, res.statusText || "Super mode failed."));
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let usage: Message["usage"];
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        let evt: { type?: string; text?: string; message?: string; usage?: Record<string, number> };
+        try {
+          evt = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (evt.type === "delta" && typeof evt.text === "string") {
+          draft.append(evt.text);
+        } else if (evt.type === "usage" && evt.usage) {
+          usage = {
+            promptTokens: evt.usage.prompt_tokens,
+            completionTokens: evt.usage.completion_tokens,
+            costUsd: typeof evt.usage.cost === "number" ? evt.usage.cost : undefined,
+          };
+        } else if (evt.type === "error" && evt.message) {
+          fail(evt.message);
+          return;
+        }
+      }
+    }
+
+    finalize({ usage, grounding: webContext?.grounding });
+  } catch (err: unknown) {
+    if ((err as { name?: string })?.name === "AbortError") {
+      finalize({});
+      return;
+    }
+    fail(err instanceof Error ? err.message : String(err));
   }
-
-  const provisional = enabledSelected[0] ?? autoRouterCandidates()[0]?.id;
-  if (!provisional) return; // no models available
-
-  // Show the question + a thinking placeholder immediately while we route.
-  if (conv.selectedModels.length !== 1 || conv.selectedModels[0] !== provisional) {
-    useChat.getState().setSelectedModels(convId, [provisional]);
-  }
-  useChat.getState().addUserMessage(convId, prompt, [provisional]);
-  const placeholderId = useChat.getState().startAssistant(convId, provisional, "thinking");
-  // Keep the placeholder responsive to "stop" while routing is in flight.
-  ctrl.signal.addEventListener("abort", () => {
-    const msg = useChat
-      .getState()
-      .conversations[convId]?.threads[provisional]?.messages.find((m) => m.id === placeholderId);
-    if (msg?.pending) useChat.getState().finishAssistant(convId, provisional, placeholderId);
-  });
-
-  const picked = (await pickBestModel(prompt, provisional, ctrl.signal)) || provisional;
-  if (ctrl.signal.aborted) return;
-
-  if (picked === provisional) {
-    streamTargets(convId, prompt, [provisional], ctrl, settings, new Map([[provisional, placeholderId]]));
-    return;
-  }
-
-  // Routed to a different model: clear the provisional placeholder and switch.
-  useChat.getState().finishAssistant(convId, provisional, placeholderId);
-  useChat.getState().setSelectedModels(convId, [picked]);
-  useChat.getState().addUserMessage(convId, prompt, [picked]);
-  streamTargets(convId, prompt, [picked], ctrl, settings);
 }
 
 // Starts assistant placeholders and streams responses for the given targets.

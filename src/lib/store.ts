@@ -124,10 +124,15 @@ export type ModelThread = {
 };
 
 // How a conversation routes prompts to models.
-// - "auto": automatically pick the best single model for the conversation.
 // - "multi": broadcast to several models side-by-side (classic behavior).
 // - "single": chat with one specific user-chosen model.
-export type ChatMode = "auto" | "multi" | "single";
+// - "super": orchestrate the two best models under the hood and synthesize a
+//   single best answer (prompt enhancement + auto web search happen silently).
+export type ChatMode = "multi" | "single" | "super";
+
+// Virtual thread id that holds the synthesized answer in "super" mode. It is
+// not a real model, so getModel() returns undefined and no model name is shown.
+export const SUPER_THREAD_ID = "__super__";
 
 export type Conversation = {
   id: string;
@@ -668,7 +673,11 @@ function sanitizeConversation(conversation: Conversation): Conversation {
 
   return pruneConversationPayload({
     ...conversation,
-    chatMode: conversation.chatMode === "auto" || conversation.chatMode === "single" ? conversation.chatMode : "multi",
+    // Legacy persisted "auto" mode is migrated to "multi".
+    chatMode:
+      conversation.chatMode === "single" || conversation.chatMode === "super"
+        ? conversation.chatMode
+        : "multi",
     selectedModels: nextSelectedModels,
     focusedModel: focusedModel && nextSelectedModels.includes(focusedModel) ? focusedModel : null,
     threads,
@@ -690,7 +699,7 @@ function removeSelectedRoutes(
         const selectedModels = conversation.selectedModels.filter((modelId) => !shouldRemove(modelId));
         return {
           ...conversation,
-          chatMode: selectedModels.length === 0 ? "auto" : conversation.chatMode,
+          chatMode: conversation.chatMode,
           selectedModels,
         disabledModels: (conversation.disabledModels ?? []).filter((modelId) => !shouldRemove(modelId)),
         focusedModel:
@@ -848,7 +857,7 @@ export const useChat = create<ChatState>()(
         set((s) => {
           const c = s.conversations[id];
           if (!c || c.chatMode === mode) return s;
-          // Single mode keeps just one model; auto/multi keep the current selection.
+          // Single mode keeps just one model; other modes keep current selection.
           const selectedModels =
             mode === "single" ? c.selectedModels.slice(0, 1) : c.selectedModels;
           return {
@@ -897,14 +906,13 @@ export const useChat = create<ChatState>()(
           }
           // If focused model was deselected, clear focus
           const focusedModel = c.focusedModel && nextModels.includes(c.focusedModel) ? c.focusedModel : null;
-          const chatMode = nextModels.length === 0 ? "auto" : c.chatMode;
           return {
             lastUsedModels: nextModels.length > 0 ? nextModels : s.lastUsedModels,
             conversations: {
               ...s.conversations,
               [id]: {
                 ...c,
-                chatMode,
+                chatMode: c.chatMode,
                 selectedModels: nextModels,
                 threads,
                 focusedModel,
@@ -975,7 +983,7 @@ export const useChat = create<ChatState>()(
               return [
                 id,
                 (() => {
-                  const chatMode = selectedModels.length === 0 ? "auto" : conversation.chatMode;
+                  const chatMode = conversation.chatMode;
                   return {
                     ...conversation,
                     chatMode,

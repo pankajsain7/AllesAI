@@ -9,6 +9,7 @@ import { ProviderIcon } from "./ProviderIcon";
 import { AlertCircle, Focus, Square, Copy, Check, GripVertical, ChevronDown, ChevronRight, Brain, Globe, RotateCcw } from "lucide-react";
 import { abortModel, streamModel } from "@/lib/chat-client";
 import { streamDraftKey, useStreamDrafts } from "@/lib/stream-drafts";
+import { getPromptSubmittedAt } from "@/lib/scroll-intent";
 
 /** Split out <think>...</think> blocks from raw content. */
 function parseThinking(content: string): { thinking: string; answer: string } {
@@ -101,7 +102,7 @@ function StreamingContent({ content, pendingLabel }: { content: string; pendingL
   );
 }
 
-function MessageBubble({
+export function MessageBubble({
   msg,
   convId,
   modelId,
@@ -236,6 +237,7 @@ function MessageBubble({
 // Remembers each column's scroll position so it survives unmount/remount
 // (e.g. opening the model picker overlay or switching the single-chat model).
 const scrollPositions = new Map<string, number>();
+const ANSWER_TOP_OFFSET_PX = 2;
 
 export function ModelColumn({
   convId,
@@ -312,6 +314,19 @@ export function ModelColumn({
     if (c) scrollPositions.set(scrollKey, c.scrollTop);
   };
 
+  // The element that should land at the top of the viewport after a new
+  // prompt is sent: the assistant reply immediately following the latest
+  // user bubble (so the answer, not the prompt, is what's visible), falling
+  // back to the user bubble itself if no reply has been rendered yet.
+  const getScrollTarget = (container: HTMLElement): HTMLElement | undefined => {
+    const userBubbles = container.querySelectorAll("[data-role='user']");
+    const lastUser = userBubbles[userBubbles.length - 1] as HTMLElement | undefined;
+    if (!lastUser) return undefined;
+    const next = lastUser.nextElementSibling as HTMLElement | null;
+    if (next && next.getAttribute("data-role") === "assistant") return next;
+    return lastUser;
+  };
+
   // Find the ID of the latest user message
   const latestUserMsg = thread ? [...thread.messages].reverse().find((m) => m.role === "user") : undefined;
   const latestUserMsgId = latestUserMsg?.id ?? null;
@@ -325,32 +340,42 @@ export function ModelColumn({
   // Initialize with the current latest user message ID so the FIRST render
   // (page refresh / opening old chat) does not trigger a scroll.
   const lastUserMsgId = useRef<string | null>(latestUserMsgId);
+  const lastHandledSubmissionAt = useRef<number>(0);
 
   useEffect(() => {
     if (!thread) return;
+    const latestSubmissionAt = getPromptSubmittedAt(convId);
+    const hasFreshSubmission = latestSubmissionAt > lastHandledSubmissionAt.current;
     // Conversation switched - reset tracking to its current latest, don't scroll
     if (prevConvId.current !== convId) {
       prevConvId.current = convId;
       lastUserMsgId.current = latestUserMsgId;
+      if (hasFreshSubmission) {
+        lastHandledSubmissionAt.current = latestSubmissionAt;
+      }
       return;
     }
-    // Only scroll when a NEW user message appeared after mount
-    if (latestUserMsgId === lastUserMsgId.current) return;
+    // Scroll when a NEW user message appears, or when this conversation just
+    // received a submitted prompt (covers first render after hero submit).
+    if (latestUserMsgId === lastUserMsgId.current && !hasFreshSubmission) return;
     lastUserMsgId.current = latestUserMsgId;
+    if (hasFreshSubmission) lastHandledSubmissionAt.current = latestSubmissionAt;
 
-    // Wait for DOM paint, then scroll the new user bubble to the top
+    // Wait for DOM paint, then scroll so the answer (not the prompt) starts at the top
     requestAnimationFrame(() => {
       const container = scrollContainerRef.current;
       if (!container) return;
-      const userBubbles = container.querySelectorAll("[data-role='user']");
-      const lastUser = userBubbles[userBubbles.length - 1] as HTMLElement | undefined;
-      if (lastUser) {
-        lastUser.scrollIntoView({ behavior: "smooth", block: "start" });
+      const target = getScrollTarget(container);
+      if (target) {
+        container.scrollTo({
+          top: Math.max(0, target.offsetTop - ANSWER_TOP_OFFSET_PX),
+          behavior: "smooth",
+        });
       }
     });
   }, [convId, latestUserMsgId, thread]);
 
-  // Dynamic spacer: just enough room so the last user msg can scroll to top.
+  // Dynamic spacer: just enough room so the answer can scroll to the top.
   // Shrinks automatically as the assistant response grows beneath it.
   useEffect(() => {
     if (!thread) return;
@@ -359,18 +384,17 @@ export function ModelColumn({
     if (!container || !spacer) return;
 
     const updateSpacer = () => {
-      const userBubbles = container.querySelectorAll("[data-role='user']");
-      const lastUser = userBubbles[userBubbles.length - 1] as HTMLElement | undefined;
-      if (!lastUser) {
+      const target = getScrollTarget(container);
+      if (!target) {
         spacer.style.height = "0px";
         return;
       }
-      // Sum heights of last user bubble + everything after it (excluding spacer)
+      // Sum heights of the target bubble + everything after it (excluding spacer)
       let contentBelow = 0;
       let found = false;
       Array.from(container.children).forEach((child) => {
         if (child === spacer) return;
-        if (child === lastUser) found = true;
+        if (child === target) found = true;
         if (found) contentBelow += (child as HTMLElement).offsetHeight;
       });
       const needed = container.clientHeight - contentBelow;

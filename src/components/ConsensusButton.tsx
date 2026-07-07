@@ -603,7 +603,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-5 py-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[var(--border)] bg-[var(--bg-elevated)] px-5 py-2">
                 <button
                   type="button"
                   disabled={loading || !canRunConsensus}

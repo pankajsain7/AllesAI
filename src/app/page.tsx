@@ -5,11 +5,13 @@ import {
   filterSelectableModelIds,
   useChat,
   useSettings,
+  SUPER_THREAD_ID,
 } from "@/lib/store";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelColumn } from "@/components/ModelColumn";
 import { Composer } from "@/components/Composer";
 import { HeroComposer } from "@/components/HeroComposer";
+import { SuperColumn } from "@/components/SuperColumn";
 import { ConsensusButton } from "@/components/ConsensusButton";
 import { SynthesisHistoryButton } from "@/components/SharedResultsLane";
 import { ModelPicker } from "@/components/ModelPicker";
@@ -106,6 +108,7 @@ export default function Home() {
     ? Object.entries(conv.threads)
         .filter(
           ([modelId, thread]) =>
+            modelId !== SUPER_THREAD_ID &&
             !visibleSelectedModels.includes(modelId) && (thread.messages?.length ?? 0) > 0
         )
         .map(([modelId]) => modelId)
@@ -166,8 +169,9 @@ export default function Home() {
   const hasMessages = !!conv && Object.values(conv.threads).some(
     (thread) => (thread.messages?.length ?? 0) > 0
   );
-  const isAuto = conv?.chatMode === "auto";
   const isSingle = conv?.chatMode === "single";
+  const isSuper = conv?.chatMode === "super";
+  const hasSuperMessages = !!conv?.threads[SUPER_THREAD_ID]?.messages.length;
   const singleModel = isSingle ? getModel(visibleSelectedModels[0] ?? "") : undefined;
   // In single mode, show the model cards when explicitly opened or none chosen yet.
   const showSinglePicker = !!conv && isSingle && (singlePickerOpen || visibleSelectedModels.length === 0);
@@ -188,8 +192,8 @@ export default function Home() {
               </h1>
               <span className="truncate text-xs text-[var(--fg-muted)]">
                 {conv
-                  ? isAuto
-                    ? "- Auto-pick"
+                  ? isSuper
+                    ? "- Super"
                     : visibleFocusedModel
                       ? "- Focused on 1 model"
                       : `- ${visibleSelectedModels.length} model${visibleSelectedModels.length === 1 ? "" : "s"}`
@@ -254,17 +258,26 @@ export default function Home() {
           <SingleModelPicker convId={conv.id} onPick={() => setSinglePickerOpen(false)} />
         )}
 
-        {conv && !isAuto && !isSingle && visibleSelectedModels.length === 0 && legacyHistoryModelIds.length === 0 && (
+        {conv && !isSingle && !isSuper && visibleSelectedModels.length === 0 && legacyHistoryModelIds.length === 0 && (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--fg-muted)]">
             No active models selected. Open <strong className="mx-1">Models</strong> above or enable a provider in Settings.
           </div>
         )}
 
-        {conv && !showSinglePicker && (isAuto || visibleSelectedModels.length > 0) && !hasMessages && (
+        {conv && !showSinglePicker && ((isSuper && !hasSuperMessages) || (!isSuper && visibleSelectedModels.length > 0 && !hasMessages)) && (
           <HeroComposer convId={conv.id} />
         )}
 
-        {conv && !showSinglePicker && visibleSelectedModels.length > 0 && hasMessages && (
+        {conv && !showSinglePicker && isSuper && hasSuperMessages && (
+          <>
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <SuperColumn convId={conv.id} />
+            </div>
+            <Composer convId={conv.id} />
+          </>
+        )}
+
+        {conv && !showSinglePicker && !isSuper && visibleSelectedModels.length > 0 && hasMessages && (
           <>
             <div className="flex min-h-0 flex-1 divide-x divide-[var(--border)] overflow-x-auto">
               {columnModelIds.map((id) => (

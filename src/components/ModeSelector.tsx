@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChat, type ChatMode } from "@/lib/store";
-import { Check, ChevronDown, Columns3, MessageSquare, Sparkles } from "lucide-react";
+import { Check, ChevronDown, Columns3, MessageSquare, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 type ModeMeta = {
@@ -14,10 +14,10 @@ type ModeMeta = {
 
 const MODES: ModeMeta[] = [
   {
-    id: "auto",
-    label: "Auto",
-    description: "Automatically picks the best model for your question",
-    icon: Sparkles,
+    id: "super",
+    label: "Super",
+    description: "Multiple agents collaborate under the hood for one best answer",
+    icon: Zap,
   },
   {
     id: "multi",
@@ -63,7 +63,7 @@ export function ModeSelector({
 
   if (!conv) return null;
 
-  const current = MODES.find((m) => m.id === conv.chatMode) ?? MODES[1];
+  const current = MODES.find((m) => m.id === conv.chatMode) ?? MODES[0];
   const CurrentIcon = current.icon;
 
   return (

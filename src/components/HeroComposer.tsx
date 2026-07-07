@@ -9,7 +9,7 @@ import {
   useSettings,
   type ProviderToggleSettings,
 } from "@/lib/store";
-import { ArrowUp, Globe, Loader2, Sparkles, X } from "lucide-react";
+import { ArrowUp, Globe, Loader2, Sparkles, X, Zap } from "lucide-react";
 import { ProviderIcon } from "./ProviderIcon";
 import {
   MODEL_CATALOG,
@@ -28,6 +28,8 @@ import {
 import { isRemovedModelName } from "@/lib/model-rules";
 
 export function HeroComposer({ convId }: { convId: string }) {
+  const MIN_PROMPT_ROWS = 2;
+  const MAX_PROMPT_ROWS = 8;
   const conv = useChat((s) => s.conversations[convId]);
   const webSearch = useSettings((s) => s.webSearch);
   const setWebSearch = useSettings((s) => s.setWebSearch);
@@ -105,41 +107,50 @@ export function HeroComposer({ convId }: { convId: string }) {
       availableFamilyIds.has(getModelFamilyId(id))
     )
   );
-  const isAuto = conv.chatMode === "auto";
   const isSingle = conv.chatMode === "single";
-  const heading = isAuto
-    ? "Auto-pick the best model"
+  const isSuper = conv.chatMode === "super";
+  const heading = isSuper
+    ? "Get the best answer"
     : isSingle
       ? "Ask a single model"
       : "Ask many minds at once";
-  const subheading = isAuto
-    ? "Type your question and the best model is chosen automatically."
+  const subheading = isSuper
+    ? "Your prompt is routed to multiple top models and merged into one refined answer."
     : isSingle
-      ? "Chat one-on-one with your chosen model."
-      : "Compare answers from top free AI models, side-by-side.";
-
+      ? "Pick a model below and start chatting."
+      : "Compare responses from several models side by side, in one place.";
   const onSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const t = text.trim();
     if (!t) return;
     sendPromptToAll(convId, t);
     setText("");
-    requestAnimationFrame(syncTextareaHeight);
+    requestAnimationFrame(() => syncTextareaHeight(""));
   };
 
   // Auto-grow the input box vertically as a longer prompt is typed/pasted,
-  // up to 3x its single-line height. Width stays fixed.
+  // from 2 visible rows up to 8 rows max.
   const autoGrow = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
-    const base = 38; // single-line height (px)
-    el.style.height = `${Math.min(el.scrollHeight, base * 3)}px`;
+    const styles = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 24;
+    const paddingY =
+      (Number.parseFloat(styles.paddingTop) || 0) +
+      (Number.parseFloat(styles.paddingBottom) || 0);
+    const borderY =
+      (Number.parseFloat(styles.borderTopWidth) || 0) +
+      (Number.parseFloat(styles.borderBottomWidth) || 0);
+    const minHeight = lineHeight * MIN_PROMPT_ROWS + paddingY + borderY;
+    const maxHeight = lineHeight * MAX_PROMPT_ROWS + paddingY + borderY;
+    const nextHeight = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight);
+    el.style.height = `${nextHeight}px`;
   };
 
-  const syncTextareaHeight = () => {
+  const syncTextareaHeight = (nextText: string) => {
     const el = textareaRef.current;
     if (!el) return;
 
-    if (!text) {
+    if (!nextText) {
       el.style.height = "";
       return;
     }
@@ -149,7 +160,7 @@ export function HeroComposer({ convId }: { convId: string }) {
 
   const setTextAndResize = (nextText: string) => {
     setText(nextText);
-    requestAnimationFrame(syncTextareaHeight);
+    requestAnimationFrame(() => syncTextareaHeight(nextText));
   };
 
   const enhanceModel = visibleSelectedModels[0] ?? null;
@@ -177,44 +188,53 @@ export function HeroComposer({ convId }: { convId: string }) {
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-hidden">
       <div className="hero-grid pointer-events-none absolute inset-0 opacity-60" />
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-[60%] rounded-full opacity-[0.15] blur-3xl"
+        style={{ background: "radial-gradient(circle, var(--accent) 0%, transparent 70%)" }}
+      />
 
-      <div className="relative z-10 flex w-full max-w-[119.7rem] flex-col items-center px-6">
-        <div className="mb-8 w-full max-w-2xl text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-[var(--fg)]">
+      <div className="relative z-10 flex w-full max-w-3xl -translate-y-[6vh] flex-col items-center px-6">
+        {isSuper && (
+          <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-1 text-xs font-semibold tracking-wide text-[var(--accent)]">
+            <Zap size={13} className="fill-current" />
+            <span>SUPER MODE</span>
+          </div>
+        )}
+
+        <div className="mb-8 w-full text-center">
+          <h1 className="text-3xl font-semibold tracking-tight text-[var(--fg)] sm:text-4xl">
             {heading}
           </h1>
-          <p className="mt-3 text-base text-[var(--fg-muted)]">
+          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-[var(--fg-muted)]">
             {subheading}
           </p>
-          <div className="mt-6 flex items-center justify-center gap-2">
-            {isAuto ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-medium text-[var(--accent)]">
-                <Sparkles size={15} />
-                Best model chosen for you
-              </div>
-            ) : (
-              <>
-                {visibleSelectedModels.slice(0, 8).map((id) => {
-                  const m = getModel(id);
-                  if (!m) return null;
-                  return (
-                    <div key={id} className="rounded-full ring-2 ring-[var(--bg)]">
-                      <ProviderIcon provider={m.provider} size={26} />
-                    </div>
-                  );
-                })}
-                {visibleSelectedModels.length > 8 && (
-                  <span className="ml-1 text-sm text-[var(--fg-muted)]">
-                    +{visibleSelectedModels.length - 8}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
+
+          {!isSuper && visibleSelectedModels.length > 0 && (
+            <div className="mt-5 flex items-center justify-center -space-x-1.5">
+              {visibleSelectedModels.slice(0, 8).map((id) => {
+                const m = getModel(id);
+                if (!m) return null;
+                return (
+                  <div
+                    key={id}
+                    className="rounded-full bg-[var(--bg-elevated)] ring-2 ring-[var(--bg)] transition hover:z-10 hover:-translate-y-0.5"
+                    title={m.label}
+                  >
+                    <ProviderIcon provider={m.provider} size={26} />
+                  </div>
+                );
+              })}
+              {visibleSelectedModels.length > 8 && (
+                <span className="ml-3 text-sm font-medium text-[var(--fg-muted)]">
+                  +{visibleSelectedModels.length - 8}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {enhanceError && (
-          <div className="mb-2 flex w-full max-w-2xl items-center gap-2 rounded-md border border-[var(--error)]/40 bg-[var(--error)]/10 px-2.5 py-1 text-[11px] text-[var(--error)]">
+          <div className="mb-3 flex w-full items-center gap-2 rounded-lg border border-[var(--error)]/40 bg-[var(--error)]/10 px-3 py-1.5 text-xs text-[var(--error)]">
             <span className="font-medium">{enhanceError}</span>
             <button
               type="button"
@@ -227,18 +247,21 @@ export function HeroComposer({ convId }: { convId: string }) {
           </div>
         )}
 
-        <form
-          onSubmit={onSubmit}
-          className="mx-auto w-full"
-          style={{ maxWidth: `${42 * 1.25 * 0.95}rem` }}
-        >
-          <div className="flex items-center gap-2 rounded-3xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 shadow-sm transition focus-within:border-[var(--border-strong)] focus-within:shadow-md">
+        <form onSubmit={onSubmit} className="w-full">
+          <div
+            className={
+              "flex items-end gap-2 rounded-3xl border bg-[var(--bg-elevated)] px-4 py-3 shadow-sm transition focus-within:shadow-md " +
+              (isSuper
+                ? "border-[var(--accent)]/25 focus-within:border-[var(--accent)]/60"
+                : "border-[var(--border)] focus-within:border-[var(--border-strong)]")
+            }
+          >
             <button
               type="button"
               onClick={() => setWebSearch(!webSearch)}
               title={webSearch ? "Web search ON - click to disable" : "Enable web search for all models"}
               className={
-                "shrink-0 rounded-full p-1.5 transition " +
+                "mb-0.5 shrink-0 rounded-full p-1.5 transition " +
                 (webSearch ? "text-[var(--accent)]" : "text-[var(--fg-subtle)] hover:text-[var(--fg-muted)]")
               }
             >
@@ -253,7 +276,7 @@ export function HeroComposer({ convId }: { convId: string }) {
                   ? "Enhance prompt - let AI rewrite it for a better answer"
                   : "Select a model to enhance the prompt"
               }
-              className="shrink-0 rounded-full p-1.5 text-[var(--fg-subtle)] transition hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--fg-subtle)]"
+              className="mb-0.5 shrink-0 rounded-full p-1.5 text-[var(--fg-subtle)] transition hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--fg-subtle)]"
             >
               {enhancing ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
             </button>
@@ -275,7 +298,10 @@ export function HeroComposer({ convId }: { convId: string }) {
             <button
               type="submit"
               disabled={!text.trim()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-fg)] shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+              className={
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--accent-fg)] shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30 " +
+                (isSuper ? "bg-[var(--accent)]" : "bg-[var(--accent)]")
+              }
               title="Send"
             >
               <ArrowUp size={16} strokeWidth={2.5} />
@@ -283,7 +309,7 @@ export function HeroComposer({ convId }: { convId: string }) {
           </div>
         </form>
 
-        <p className="mt-4 w-full max-w-2xl text-center text-xs text-[var(--fg-subtle)]">
+        <p className="mt-4 text-center text-xs text-[var(--fg-subtle)]">
           Press <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5">Enter</kbd> to send,{" "}
           <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5">Shift+Enter</kbd> for newline
         </p>
