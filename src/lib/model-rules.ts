@@ -7,14 +7,13 @@ const REMOVED_MODEL_TOKENS = ["mis" + "tral", "north-mini-code", "north mini cod
 // debater, or judge). Curated so answer quality stays consistent and high no
 // matter which one the user picks.
 export const CONSENSUS_COUNCIL_MODEL_IDS = [
-  // Gemini first — 1M context window handles even the largest multi-model
-  // transcripts without truncation.
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "opencode/big-pickle",
-  "opencode/deepseek-v4-flash-free",
-  "opencode/mimo-v2.5-free",
+  // Gemini: 1 model (latest fast generation, 1M context)
+  "gemini-3.5-flash",
+  // Groq: 3 models (diverse sizes + capabilities for redundancy)
+  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-120b",
+  "qwen/qwen3.6-27b",
+  // Ollama: 2 models (cloud-hosted backups)
   "ollama-cloud/gemma4:31b",
   "ollama-cloud/nemotron-3-super",
 ] as const;

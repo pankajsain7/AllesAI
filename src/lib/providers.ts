@@ -57,31 +57,31 @@ export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
     key: "gemini",
     name: "Gemini API",
     shortName: "Gemini",
-    color: "#1a73e8",
+    color: "#1f2937",
   },
   opencode: {
     key: "opencode",
     name: "OpenCode Zen",
     shortName: "OpenCode",
-    color: "#ea580c",
+    color: "#7c3aed",
   },
   "ollama-cloud": {
     key: "ollama-cloud",
     name: "Ollama",
     shortName: "Ollama",
-    color: "#111827",
+    color: "#06b6d4",
   },
   "ollama-local": {
     key: "ollama-local",
     name: "Local",
     shortName: "Local",
-    color: "#374151",
+    color: "#64748b",
   },
   custom: {
     key: "custom",
     name: "Custom",
     shortName: "Custom",
-    color: "#7c3aed",
+    color: "#8b5cf6",
   },
 };
 

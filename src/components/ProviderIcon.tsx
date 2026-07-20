@@ -26,31 +26,39 @@ const PATHS: Partial<Record<ProviderKey, string>> = {
 
   gemini:
     "M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z",
+
+  ollama:
+    "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z",
 };
 
-const API_PATHS: Partial<Record<ApiProviderKey, string>> = {};
+const API_PATHS: Partial<Record<ApiProviderKey, string>> = {
+  groq:
+    "M8 2C4.14 2 1 5.14 1 9v6c0 3.86 3.14 7 7 7h6c3.86 0 7-3.14 7-7V9c0-3.86-3.14-7-7-7H8zm6.5 13.5H8V8.5h6.5v7z",
+  "ollama-cloud":
+    "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z",
+};
 
 // Monogram fallback for brands without a SimpleIcons path.
 const LETTERS: Record<ProviderKey, string> = {
   openai:   "OA",
   deepseek: "DS",
-  meta:     "M",
+  meta:     "ML",
   nvidia:   "NV",
   qwen:     "QW",
-  gemini:   "G",
+  gemini:   "GG",
   zhipu:    "ZP",
   minimax:  "MM",
-  opencode: "OC",
+  opencode: "OZ",
   ollama:   "OL",
   custom:   "CU",
 };
 
 const API_LETTERS: Record<ApiProviderKey, string> = {
   groq: "GQ",
-  gemini: "GM",
-  opencode: "OC",
-  "ollama-cloud": "OL",
-  "ollama-local": "LC",
+  gemini: "GG",
+  opencode: "OZ",
+  "ollama-cloud": "OC",
+  "ollama-local": "OL",
   custom: "CU",
 };
 
