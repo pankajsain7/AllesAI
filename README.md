@@ -1,152 +1,219 @@
-# Alles AI - Compare LLMs side-by-side
-
-**Alles AI** sends a single prompt to multiple free or BYOK AI routes and streams their responses **side-by-side** in real time.
+﻿# Alles AI — Compare LLMs Side-by-Side
 
 ![status](https://img.shields.io/badge/status-active-brightgreen)
 ![next](https://img.shields.io/badge/Next.js-16-black)
-![ts](https://img.shields.io/badge/TypeScript-5-blue)
+![ts](https://img.shields.io/badge/TypeScript-6-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-## Models
+**Alles AI** fans a single prompt out to multiple AI models in parallel and streams their responses **side-by-side** in real time. Compare outputs, run consensus synthesis, or pit models against each other in a structured council debate — all from one interface, entirely BYOK.
 
-| Model | Default source | Other selectable sources | Context | Notes |
+---
+
+## Live Models
+
+| Model | Provider | API | Context | Capability |
 |---|---|---|---|---|
-| GPT-OSS 120B | Groq | Local Ollama if installed | 128K | Reasoning |
-| Llama 4 Scout 17B | Groq | Local Ollama if installed | 128K | Vision |
-| Qwen3 32B | Groq | Local Ollama if installed | 128K | General |
-| Gemini 2.5 Flash Lite | Google Gemini API | - | 1M | Vision |
-| big-pickle, DeepSeek V4 Flash Free, MiMo 2.5 Free, Nemotron 3 Ultra Free | OpenCode Zen | - | 128K | Curated free OpenCode Zen models |
-| Qwen3.5 397B, Gemma 4 31B, MiniMax M3 | Ollama (hosted API) | Local Ollama if installed | varies | Optional hosted reasoning/coding models |
+| GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
+| Llama 3.3 70B | Meta | Groq | 128K | All-purpose, vision |
+| Qwen 3.6 27B | Qwen / Alibaba | Groq | 128K | Fast reasoning, thinking |
+| Llama 3.1 8B | Meta | Groq | 8K | Ultra-fast responses |
+| Gemini 3.5 Flash | Google | Gemini API | 1M | Latest Google model, vision |
+| Gemma 4 31B | Google | Ollama Cloud | 256K | General, vision, thinking |
+| MiniMax M3 | MiniMax | Ollama Cloud | 256K | Agentic reasoning |
 
-Core Groq and Gemini routes, plus the curated OpenCode Zen `-free` models, are available on free API tiers with your own key. Groq models require a [Groq API key](https://console.groq.com). Gemini requires a [Google AI Studio key](https://aistudio.google.com/api-keys). OpenCode Zen models require an OpenCode API key; only models with the `-free` suffix are free, others in its browsable catalog are paid.
-Optional hosted Ollama models require an Ollama API key, and some hosted models require an Ollama subscription. Optional local models come from your own Ollama install and are selected from the models already pulled on your machine. Users can also browse and add other (paid) models from Groq, Gemini, OpenCode Zen, and custom OpenAI-compatible providers via Settings.
+> All core models are **free** on their respective API tiers with your own key.
+> Ollama Cloud models require an [ollama.com](https://ollama.com) account (some require a paid tier).
+
+### Browse & Import More Models
+
+Go to **Settings → Browse models** to import additional models from:
+- **Groq** — dozens of extra hosted models
+- **Gemini** — full Google model catalog
+- **OpenCode Zen** — Claude, GPT-5, Gemini 3.x and more (paid)
+- **Custom** — any OpenAI-compatible endpoint (local or remote)
+
+---
 
 ## Features
 
-- **Multi-model side-by-side chat** - fan a prompt out to all selected models in parallel
-- **One row per model family** - choose GPT-OSS once, then switch the API source between Groq, Ollama, or local
-- **Token-by-token streaming** per column independently
-- **BYOK** - API keys stored only in your browser's `localStorage`, never on a server
-- **Per-column multi-turn** - each model keeps its own conversation thread
-- **Focus mode** - click the focus icon on any column to direct further prompts to one model only
-- **Pause / resume columns** - toggle individual models on/off without losing their history
+### Chat
+- **Multi-model parallel chat** — fan one prompt to all selected models simultaneously
+- **Token-by-token streaming** — each column streams independently
+- **Per-column conversation threads** — each model keeps its own multi-turn history
+- **Focus mode** — lock further prompts to one column only
+- **Pause / resume columns** — toggle models on/off without losing history
+- **Stop streaming** — abort one column or all at once
 - **Drag to reorder** columns
-- **Provider toggles** - show only the APIs you want to use
-- **Optional local Ollama models** - refresh installed local models and compare them beside hosted APIs
-- **Optional Ollama models** - compare hosted ollama.com models without adding duplicate columns for the same model family
-- **Shared web search** - Tavily MCP runs once per prompt and gives every selected model the same current source context
-- **Quality consensus answer** - synthesizes model responses with the best eligible synthesis route
-- **Model council** - runs multiple models through opening, critique, and convergence rounds before a moderated final answer
-- **Quick / deep synthesis** - choose a faster answer or deeper claim-checking with confidence and quality notes
-- **Thinking block** - collapsible `<think>` reasoning display for models that support it
-- **Markdown + syntax highlighting** for code-heavy responses
-- **Persistent history** in `localStorage` - full conversation sidebar with search and delete confirmation
-- **Compact columns** for dense desktop comparisons
-- **Stop streaming** per-column or globally
 
-## Tech stack
+### Models & Providers
+- **Model picker** — grouped by model family; switch API source per model
+- **Provider toggles** — show only the providers you have keys for
+- **Local Ollama** — discover and chat with models installed on your machine
+- **Hosted Ollama** — use ollama.com API without running Ollama locally
+- **Custom providers** — add any OpenAI-compatible API endpoint
 
-- **Next.js 16** (App Router, Edge runtime) + **React 19** + **TypeScript 5**
-- **Tailwind CSS 4** + **lucide-react** icons
-- **Zustand 5** (with `persist`) for client state and chat history
-- **react-markdown** + **remark-gfm** + **rehype-highlight** for rendering
-- **Groq** chat completions API (OpenAI-compatible, SSE -> NDJSON proxy)
-- **Google Gemini** native streaming API (SSE -> NDJSON proxy)
-- **Tavily MCP** for shared real-time web context
-- **Ollama** local chat API (NDJSON to NDJSON proxy)
+### Intelligence
+- **Shared web search** — Tavily search runs once per prompt and gives every model the same real-time context
+- **Consensus answer** — synthesizes all model responses into a single best answer using the strongest eligible model
+- **Quick / deep synthesis** — choose faster summary or deep claim-checking with confidence and quality notes
+- **Model council** — structured multi-round debate: opening arguments → critique → convergence → moderated final verdict
+- **Thinking blocks** — collapsible `<think>` reasoning for models that expose chain-of-thought
 
-## Quick start
+### UI / UX
+- **Markdown + syntax highlighting** — code-heavy responses render cleanly
+- **Compact columns** — dense desktop layout for many models at once
+- **Persistent history** — full conversation sidebar with search and delete
+- **BYOK** — API keys stored only in browser `localStorage`, never sent to a server
+- **System prompt** — custom instructions applied across all models
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router, Edge runtime) |
+| UI | React 19, Tailwind CSS 4, lucide-react |
+| State | Zustand 5 (with `persist` → localStorage) |
+| Markdown | react-markdown + remark-gfm + rehype-highlight |
+| Language | TypeScript 6 |
+| AI APIs | Groq (SSE), Google Gemini (SSE), Ollama (NDJSON) |
+| Search | Tavily MCP |
+
+---
+
+## Quick Start
 
 ```bash
 cd app
+npm install       # only needed once, or when package.json changes
 npm run dev
 ```
 
-Open <http://localhost:3000>, click **Settings**, add your API keys, then start chatting.
+Open **http://localhost:3000**, click **Settings**, add your API keys, and start chatting.
 
-Only run `npm install` when `node_modules` is missing or `package.json` dependencies changed:
+---
 
-```bash
-cd app
-npm install
-```
+## API Keys
 
-### Local run notes
-
-- Run project commands from the `app/` folder only.
-- Do not repeat `npm install` unless `package.json` dependencies changed or `node_modules` is missing.
-- Avoid starting the dev server while many old `node.exe` processes are already running.
-- `npm run dev` is configured for this laptop to bind to `127.0.0.1` and use Webpack, which avoids the local freeze issue while keeping the normal command.
-- Treat installs, builds, formatters, and long-running watchers as approval-only when working through Codex.
-
-For local models, install and run [Ollama](https://ollama.com), enable **Local models** in Settings, refresh installed models, then select the local models from **Models**.
-For hosted Ollama models, enable **Ollama models** in Settings, add your Ollama API key, then choose Ollama from a model's source dropdown.
-
-### Environment variables (optional server-side keys)
-
-Create `.env.local` in the `app/` folder:
+Create `.env.local` in the `app/` folder to set server-side fallback keys (visitors without keys can still use the app):
 
 ```env
 GROQ_API_KEY=gsk_...
 GEMINI_API_KEY=AIza...
-OLLAMA_API_KEY=ollama_...
-TAVILY_API_KEY=tvly-...
-# or:
-TAVILY_MCP_URL=https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-...
+OLLAMA_API_KEY=<ollama.com api key>
+tavilyApiKey=tvly-...
+OpenCode_API_Key=sk-...
 ```
 
-If set, these act as fallback keys so visitors do not need their own. Client-provided keys from Settings always take priority.
+Client-provided keys entered in **Settings** always take priority over `.env.local` keys.
+
+### Where to get keys
+
+| Provider | Free Tier | Link |
+|---|---|---|
+| Groq | ✅ Yes | https://console.groq.com |
+| Google Gemini | ✅ Yes | https://aistudio.google.com/api-keys |
+| Ollama Cloud | ✅ Yes (some models need paid) | https://ollama.com |
+| Tavily | ✅ Yes (1000 searches/month) | https://tavily.com |
+| OpenCode Zen | ❌ Paid | https://opencode.ai |
+
+---
 
 ## Architecture
 
 ```
-Browser (Next.js page)
-  |-- Zustand store (conversations, threads, settings) -> localStorage
+Browser (Next.js App Router)
+  |-- Zustand store (conversations, threads, settings) → localStorage
   `-- For each selected model:
-        POST /api/search ------------------------------> Tavily MCP
-                       <-------------------------------- shared source context
-        POST /api/chat  --------------------------------> Groq / Gemini / local Ollama / Ollama API
-                       <-------------------------------- NDJSON (delta | usage | done | error)
+        POST /api/search ──────────────────────────────► Tavily MCP
+                         ◄────────────────────────────── shared source context
+        POST /api/chat ────────────────────────────────► Groq / Gemini / Ollama / Custom
+                       ◄────────────────────────────────  NDJSON (delta | usage | done | error)
 
-  Consensus / council:
-        POST /api/consensus ---------------------------> selected synthesis model / council models
-                            <-------------------------- NDJSON (delta | status | council_note | done)
+  Consensus / Council:
+        POST /api/consensus ───────────────────────────► synthesis model / council models
+                            ◄──────────────────────────── NDJSON (delta | status | council_note | done)
 ```
 
-- `/api/chat` - routes to Groq, Gemini, local Ollama, or the Ollama API based on model ID prefix
-- `/api/search` - gets shared web results from Tavily MCP when web search is enabled
-- `/api/consensus` - takes all model responses, runs quick or deep synthesis, and can run a multi-round model council with a dedicated final moderator
-- `/api/ollama/models` - lists installed Ollama models from the configured local base URL
+### API Routes
 
-## Project structure
+| Route | Purpose |
+|---|---|
+| `/api/chat` | Streams responses from Groq, Gemini, Ollama Cloud, Local Ollama, or custom |
+| `/api/chat/multi` | Fans a prompt to multiple models in one request |
+| `/api/consensus` | Synthesizes responses; runs quick or deep council debate |
+| `/api/search` | Tavily MCP proxy for shared web context |
+| `/api/groq/models` | Lists browsable Groq models |
+| `/api/gemini/models` | Lists browsable Gemini models |
+| `/api/ollama/models` | Lists installed local Ollama models |
+| `/api/opencode/models` | Lists OpenCode Zen models |
+| `/api/custom/models` | Lists models from custom providers |
+
+---
+
+## Project Structure
 
 ```
-src/
-  app/
-    page.tsx              # Main UI shell
-    layout.tsx            # Root layout + fonts
-    globals.css           # Theme tokens + markdown styles
-    api/
-      chat/route.ts       # Streaming proxy -> Groq / Gemini / Ollama
-      consensus/route.ts  # Consensus synthesis endpoint
-      search/route.ts     # Tavily MCP search proxy
-      ollama/models/      # Installed local model discovery
-  components/
-    Composer.tsx          # Bottom chat input bar
-    HeroComposer.tsx      # First-prompt landing screen
-    ConsensusButton.tsx   # Floating consensus trigger + panel
-    ModelColumn.tsx       # Per-model response column
-    ModelPicker.tsx       # Model selection dialog
-    ProviderIcon.tsx      # Brand icon tiles
-    SettingsDialog.tsx    # API key + system prompt settings
-    Sidebar.tsx           # Conversation history sidebar
-    Markdown.tsx          # Memoized markdown renderer
-  lib/
-    models.ts             # Model catalog + provider groups
-    providers.ts          # Provider metadata
-    store.ts              # Zustand store (settings + chat state)
-    chat-client.ts        # Streaming fetch logic + abort control
-    utils.ts              # cn() + uid()
+app/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx                # Main UI shell
+│   │   ├── layout.tsx              # Root layout + metadata
+│   │   ├── globals.css             # Theme tokens + markdown styles
+│   │   └── api/
+│   │       ├── chat/route.ts       # Streaming proxy → Groq / Gemini / Ollama
+│   │       ├── chat/multi/route.ts # Multi-model fan-out
+│   │       ├── consensus/route.ts  # Synthesis + council endpoint
+│   │       ├── search/route.ts     # Tavily MCP proxy
+│   │       ├── groq/models/        # Groq model browser
+│   │       ├── gemini/models/      # Gemini model browser
+│   │       ├── ollama/models/      # Local Ollama discovery
+│   │       ├── opencode/models/    # OpenCode Zen browser
+│   │       └── custom/models/      # Custom provider models
+│   ├── components/
+│   │   ├── Composer.tsx            # Bottom chat input bar
+│   │   ├── HeroComposer.tsx        # First-prompt landing screen
+│   │   ├── ModelColumn.tsx         # Per-model response column
+│   │   ├── ModelPicker.tsx         # Model selection dialog
+│   │   ├── SingleModelPicker.tsx   # Single model selector
+│   │   ├── ModeSelector.tsx        # Chat / Consensus / Council toggle
+│   │   ├── ConsensusButton.tsx     # Floating consensus trigger + panel
+│   │   ├── SharedResultsLane.tsx   # Consensus / council results lane
+│   │   ├── SuperColumn.tsx         # Full-width synthesis column
+│   │   ├── ProviderIcon.tsx        # Brand icon tiles
+│   │   ├── SettingsDialog.tsx      # API keys + system prompt + model browser
+│   │   ├── Sidebar.tsx             # Conversation history sidebar
+│   │   ├── Markdown.tsx            # Memoized markdown renderer
+│   │   ├── Button.tsx              # Shared button component
+│   │   └── Logo.tsx                # App logo
+│   └── lib/
+│       ├── models.ts               # Model catalog + Ollama presets + browser helpers
+│       ├── model-rules.ts          # Consensus/council allowlist + access rules
+│       ├── providers.ts            # Provider metadata + colors
+│       ├── store.ts                # Zustand store (settings + chat state)
+│       ├── chat-client.ts          # Streaming fetch + abort control
+│       ├── stream-drafts.ts        # Draft management for streaming
+│       ├── scroll-intent.ts        # Smart auto-scroll logic
+│       └── utils.ts                # cn() + uid() helpers
+├── public/
+│   └── AllesAI.png                 # App icon
+├── .env.local                      # API keys (not committed)
+├── next.config.ts
+├── postcss.config.mjs
+└── tsconfig.json
 ```
+
+---
+
+## Local Development Notes
+
+- Run all commands from the `app/` directory
+- `npm run dev` binds to `127.0.0.1` with Webpack (avoids local freeze issues)
+- Only run `npm install` when `node_modules` is missing or `package.json` changes
+- For local Ollama models: install [Ollama](https://ollama.com), enable **Local models** in Settings, then refresh
+
+---
 
 ## License
 
