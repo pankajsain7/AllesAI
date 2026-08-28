@@ -33,6 +33,12 @@ const COUNCIL_RESPONSE_BUDGET = 80_000;
 // grows each round so later rounds don't hit token limits.
 const COUNCIL_HISTORY_CAP = 6;
 
+// The final moderator receives the original answers plus every debate note.
+// Keep that synthesis payload well under Groq's smaller request allowance so
+// a successful debate cannot fail only at the verdict stage.
+const COUNCIL_SYNTHESIS_RESPONSE_BUDGET = 10_000;
+const COUNCIL_SYNTHESIS_NOTE_BUDGET = 1_600;
+
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
@@ -931,6 +937,7 @@ async function runSingle(body: RequestBody): Promise<Response> {
 function formatCouncilHistory(notes: CouncilNote[]): string {
   if (notes.length === 0) return "No previous council notes yet.";
   return notes
+    .slice(-COUNCIL_HISTORY_CAP)
     .map((note) => `\n--- ${note.roundTitle} / ${note.alias} ---\n${note.content}`)
     .join("\n");
 }
@@ -1107,11 +1114,23 @@ async function runCouncil(body: RequestBody): Promise<Response> {
     }
 
     const judge = await maybeRunJudge(send, body);
+    const synthesisBaseBlock = formatResponseBlock(
+      body.prompt,
+      truncateResponses(body.responses, COUNCIL_SYNTHESIS_RESPONSE_BUDGET),
+      body.webSearch
+    );
     const councilBlock = [
-      baseBlock,
+      synthesisBaseBlock,
       "",
       "Visible council debate:",
-      ...allNotes.map((note) => `\n--- ${note.roundTitle} / ${note.alias} ---\n${note.content}`),
+      ...allNotes.map(
+        (note) =>
+          `\n--- ${note.roundTitle} / ${note.alias} ---\n${
+            note.content.length > COUNCIL_SYNTHESIS_NOTE_BUDGET
+              ? `${note.content.slice(0, COUNCIL_SYNTHESIS_NOTE_BUDGET)}\n...[note truncated for final synthesis]`
+              : note.content
+          }`
+      ),
       ...(judge ? ["", formatJudgeBlock(judge)] : []),
     ].join("\n");
 

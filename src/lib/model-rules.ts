@@ -1,7 +1,11 @@
 import type { ModelInfo } from "./models";
 import type { ApiProviderKey } from "./providers";
 
-const REMOVED_MODEL_TOKENS = ["mis" + "tral", "north-mini-code", "north mini code"];
+// deepseek-v4-flash-free: OpenCode Zen dropped it from the free tier (still
+// listed in /v1/models but every completion request 400s "Model is unavailable").
+// muse-spark-1.2-contributor-free: consistently 500s "Internal server error"
+// on OpenCode Zen (verified across multiple attempts, not an auth issue).
+const REMOVED_MODEL_TOKENS = ["mis" + "tral", "north-mini-code", "north mini code", "deepseek-v4-flash-free", "muse-spark-1.2-contributor-free"];
 
 // The ONLY models allowed to run consensus and council (as synthesizer,
 // debater, or judge). Curated so answer quality stays consistent and high no
@@ -10,7 +14,7 @@ export const CONSENSUS_COUNCIL_MODEL_IDS = [
   // Gemini: 1 model (latest fast generation, 1M context)
   "gemini-3.5-flash",
   // Groq: 3 models (diverse sizes + capabilities for redundancy)
-  "llama-3.3-70b-versatile",
+  "qwen/qwen3.8-27b",
   "openai/gpt-oss-120b",
   "qwen/qwen3.6-27b",
   // Ollama: 2 models (cloud-hosted backups)

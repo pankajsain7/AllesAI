@@ -95,19 +95,21 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "120B",
   },
   {
-    id: "llama-3.3-70b-versatile",
-    label: "Llama 3.3 70B",
-    shortLabel: "Llama 3.3 70B",
-    provider: "meta",
+    // Groq retired llama-3.3-70b-versatile (404 model_not_found); Qwen 3.8 is
+    // the closest live all-purpose replacement on Groq.
+    id: "qwen/qwen3.8-27b",
+    label: "Qwen 3.8 27B",
+    shortLabel: "Qwen 3.8 27B",
+    provider: "qwen",
     apiProvider: "groq",
-    familyId: "llama-3.3-70b",
+    familyId: "qwen3.8-27b",
     free: true,
     context: 131072,
     category: "General",
-    vision: true,
-    routeHint: "Groq hosted Meta model",
+    thinking: true,
+    routeHint: "Groq hosted Qwen model",
     bestFor: "All-purpose chat, code, reasoning",
-    paramSize: "70B",
+    paramSize: "27B",
   },
   {
     id: "qwen/qwen3.6-27b",
@@ -125,18 +127,52 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "27B",
   },
   {
-    id: "llama-3.1-8b-instant",
-    label: "Llama 3.1 8B",
-    shortLabel: "Llama 3.1 8B",
-    provider: "meta",
+    // Groq retired llama-3.1-8b-instant (404 model_not_found); GPT-OSS 20B is
+    // the closest live fast/small replacement on Groq.
+    id: "openai/gpt-oss-20b",
+    label: "GPT-OSS 20B",
+    shortLabel: "GPT-OSS 20B",
+    provider: "openai",
     apiProvider: "groq",
-    familyId: "llama-3.1-8b",
+    familyId: "gpt-oss-20b",
     free: true,
-    context: 8192,
+    context: 131072,
     category: "General",
-    routeHint: "Groq hosted Meta model",
+    thinking: true,
+    routeHint: "Groq hosted OpenAI open-weight model",
     bestFor: "Ultra-fast responses, mobile",
-    paramSize: "8B",
+    paramSize: "20B",
+  },
+  {
+    // Verified with a live completion request on 2026-08-28. This is Groq's
+    // orchestrated compound route, so do not present it as a single lab model.
+    id: "groq/compound",
+    label: "Groq Compound",
+    shortLabel: "Compound",
+    provider: "custom",
+    apiProvider: "groq",
+    familyId: "groq-compound",
+    free: true,
+    context: 0,
+    category: "General",
+    routeHint: "Groq Compound orchestrated route",
+    bestFor: "Complex multi-step requests",
+  },
+  {
+    // Verified with a live completion request on 2026-08-28. The smaller
+    // Compound route is useful when fast orchestration matters more than the
+    // full route's capability.
+    id: "groq/compound-mini",
+    label: "Groq Compound Mini",
+    shortLabel: "Compound Mini",
+    provider: "custom",
+    apiProvider: "groq",
+    familyId: "groq-compound-mini",
+    free: true,
+    context: 0,
+    category: "General",
+    routeHint: "Groq Compound orchestrated route",
+    bestFor: "Fast multi-step requests",
   },
   {
     id: "gemini-3.5-flash",
@@ -181,16 +217,6 @@ export const OPENCODE_KNOWN_MODELS: Record<
     free: true,
     bestFor: "General chat",
   },
-  "deepseek-v4-flash-free": {
-    label: "DeepSeek V4 Flash Free",
-    shortLabel: "DeepSeek V4 Flash",
-    provider: "deepseek",
-    category: "Reasoning",
-    context: 128000,
-    thinking: true,
-    free: true,
-    bestFor: "Fast reasoning",
-  },
   "mimo-v2.5-free": {
     label: "MiMo 2.5 Free",
     shortLabel: "MiMo 2.5",
@@ -209,6 +235,14 @@ export const OPENCODE_KNOWN_MODELS: Record<
     thinking: true,
     free: true,
     bestFor: "Careful reasoning",
+  },
+  "hy3-free": {
+    label: "HY3 Free",
+    provider: "opencode",
+    category: "General",
+    context: 0,
+    free: true,
+    bestFor: "General chat",
   },
 };
 
@@ -574,14 +608,14 @@ export function getProviderGroups(): ProviderGroup[] {
 // Ollama API routes are opt-in.
 export const DEFAULT_SELECTED_MODELS = [
   "openai/gpt-oss-120b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "qwen/qwen3-32b",
-  "gemini-2.5-flash-lite",
+  "qwen/qwen3.8-27b",
+  "openai/gpt-oss-20b",
+  "gemini-3.5-flash",
 ];
 
 // Preferred synthesis model. The UI falls through to the first eligible route
 // when this provider is unavailable.
-export const CONSENSUS_MODEL = "gemini-2.5-flash-lite";
+export const CONSENSUS_MODEL = "gemini-3.5-flash";
 
 // ollama.com cloud models aren't per-model free/paid — every plan (including
 // Free) can call every hosted model, but usage is metered against a plan's

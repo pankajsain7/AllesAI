@@ -561,11 +561,14 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "ollama-cloud/minimax-m2.5:cloud": "ollama-cloud/minimax-m2.5",
   // Default hosted Qwen family moved from qwen3.5 to qwen3-coder.
   "ollama-cloud/qwen3.5:397b": "ollama-cloud/qwen3-coder:480b",
-  // Old Gemini IDs -> 2.5 flash lite
-  "gemini-2.0-flash": "gemini-2.5-flash-lite",
-  "gemini-2.5-flash": "gemini-2.5-flash-lite",
-  // gemini-2.5-pro removed
-  "gemini-2.5-pro": "gemini-2.5-flash-lite",
+  // Old Gemini IDs -> current catalog default.
+  "gemini-2.0-flash": "gemini-3.5-flash",
+  "gemini-2.5-flash": "gemini-3.5-flash",
+  "gemini-2.5-pro": "gemini-3.5-flash",
+  "gemini-2.5-flash-lite": "gemini-3.5-flash",
+  // Groq retired both Llama chat models (404 model_not_found as of 2026-08-28).
+  "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
+  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
 };
 
 function findLegacyModelIds(modelId: string): string[] {
