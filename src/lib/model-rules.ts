@@ -16,7 +16,6 @@ export const CONSENSUS_COUNCIL_MODEL_IDS = [
   // Groq: 3 models (diverse sizes + capabilities for redundancy)
   "qwen/qwen3.8-27b",
   "openai/gpt-oss-120b",
-  "qwen/qwen3.6-27b",
   // Ollama: 2 models (cloud-hosted backups)
   "ollama-cloud/gemma4:31b",
   "ollama-cloud/nemotron-3-super",

@@ -112,38 +112,6 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "27B",
   },
   {
-    id: "qwen/qwen3.6-27b",
-    label: "Qwen 3.6 27B",
-    shortLabel: "Qwen 3.6 27B",
-    provider: "qwen",
-    apiProvider: "groq",
-    familyId: "qwen3.6-27b",
-    free: true,
-    context: 131072,
-    category: "General",
-    thinking: true,
-    routeHint: "Groq hosted Qwen model",
-    bestFor: "Fast reasoning, analysis",
-    paramSize: "27B",
-  },
-  {
-    // Groq retired llama-3.1-8b-instant (404 model_not_found); GPT-OSS 20B is
-    // the closest live fast/small replacement on Groq.
-    id: "openai/gpt-oss-20b",
-    label: "GPT-OSS 20B",
-    shortLabel: "GPT-OSS 20B",
-    provider: "openai",
-    apiProvider: "groq",
-    familyId: "gpt-oss-20b",
-    free: true,
-    context: 131072,
-    category: "General",
-    thinking: true,
-    routeHint: "Groq hosted OpenAI open-weight model",
-    bestFor: "Ultra-fast responses, mobile",
-    paramSize: "20B",
-  },
-  {
     // Verified with a live completion request on 2026-08-28. This is Groq's
     // orchestrated compound route, so do not present it as a single lab model.
     id: "groq/compound",
@@ -157,22 +125,6 @@ export const MODEL_CATALOG: ModelInfo[] = [
     category: "General",
     routeHint: "Groq Compound orchestrated route",
     bestFor: "Complex multi-step requests",
-  },
-  {
-    // Verified with a live completion request on 2026-08-28. The smaller
-    // Compound route is useful when fast orchestration matters more than the
-    // full route's capability.
-    id: "groq/compound-mini",
-    label: "Groq Compound Mini",
-    shortLabel: "Compound Mini",
-    provider: "custom",
-    apiProvider: "groq",
-    familyId: "groq-compound-mini",
-    free: true,
-    context: 0,
-    category: "General",
-    routeHint: "Groq Compound orchestrated route",
-    bestFor: "Fast multi-step requests",
   },
   {
     id: "gemini-3.5-flash",

@@ -31,6 +31,13 @@ It is intentionally a rollback map rather than a copy of any API keys or user se
 No credentials, user-selected imported models, or provider settings are stored
 in this backup.
 
+## Redundancy cleanup
+
+Retained one representative of each overlapping Groq pair: GPT-OSS 120B,
+Qwen 3.8 27B, and Groq Compound. Removed GPT-OSS 20B, Qwen 3.6 27B, and
+Groq Compound Mini from the catalog; persisted selections migrate to the
+retained models.
+
 ## Council verification
 
 The live council run completed its opening, critique, and convergence rounds.
