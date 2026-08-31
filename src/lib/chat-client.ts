@@ -1,7 +1,7 @@
 "use client";
 
 import { filterSelectableModelIds, getEnabledRoutes, useChat, useSettings, type Message, normalizeModelId, SUPER_THREAD_ID } from "./store";
-import { isCloudOllamaModelId, isOllamaModelId, isOpenCodeModelId, type ModelInfo } from "./models";
+import { isCloudOllamaModelId, isOllamaModelId, isOpenCodeModelId, isBedrockModelId, type ModelInfo } from "./models";
 import { streamDraftKey, useStreamDrafts } from "./stream-drafts";
 import { markPromptSubmitted } from "./scroll-intent";
 
@@ -132,6 +132,9 @@ function formatChatError(raw: string, status: number, statusText: string, modelI
   if (status === 502 && isOpenCodeModelId(modelId)) {
     return "OpenCode Zen is unreachable. Check your OpenCode API key in Settings.";
   }
+  if (status === 502 && isBedrockModelId(modelId)) {
+    return "Amazon Bedrock is unreachable. Check your Bedrock API key in Settings.";
+  }
 
   return parsed || "Request failed";
 }
@@ -213,7 +216,8 @@ export async function streamModel(opts: {
       body: JSON.stringify({
         model: resolvedModelId,
         messages: toApiMessages(history, settings.systemPrompt, opts.webContext),
-        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,
@@ -421,7 +425,8 @@ export async function enhancePrompt(
         { role: "system", content: ENHANCE_SYSTEM_PROMPT },
         { role: "user", content: prompt },
       ],
-      apiKey: settings.apiKey || undefined,      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+      apiKey: settings.apiKey || undefined,
+      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
       ollamaApiKey: settings.ollamaApiKey || undefined,
       ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
       customProviders: settings.customProviders.length ? settings.customProviders : undefined,
@@ -556,7 +561,8 @@ async function callModelOnce(
     body: JSON.stringify({
       model: resolvedModelId,
       messages,
-      apiKey: settings.apiKey || undefined,      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+      apiKey: settings.apiKey || undefined,
+      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
       ollamaApiKey: settings.ollamaApiKey || undefined,
       ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
       customProviders: settings.customProviders.length ? settings.customProviders : undefined,
@@ -780,7 +786,8 @@ async function runSuperPrompt(convId: string, prompt: string, ctrl: AbortControl
         consensusModel: synthesizer,
         fallbackModels,
         webSearch: Boolean(webContext),
-        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,
@@ -1001,7 +1008,8 @@ async function streamMultiplexed(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         items,
-        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,
+        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,

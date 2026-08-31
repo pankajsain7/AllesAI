@@ -8,6 +8,7 @@ import {
   DEFAULT_OPENCODE_MODEL_IDS,
   DEFAULT_BEDROCK_MODEL_IDS,
   getBedrockModelInfos,
+  isBedrockModelId,
   DEFAULT_SELECTED_MODELS,
   MODEL_CATALOG,
   dedupeModelIdsByFamily,
@@ -593,6 +594,7 @@ export function normalizeModelId(modelId: string): string | null {
   if (isCustomModelId(normalized)) return normalized;
   if (isOllamaModelId(normalized)) return normalized;
   if (isOpenCodeModelId(normalized)) return normalized;
+  if (isBedrockModelId(normalized)) return normalized;
   if (normalized.startsWith("groq/")) return normalized;
   if (isCloudOllamaModelId(normalized)) return normalized;
   return VALID_MODEL_IDS.has(normalized) ? normalized : null;
