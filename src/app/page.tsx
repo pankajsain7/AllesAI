@@ -76,7 +76,9 @@ export default function Home() {
     setSelectedModels(conv.id, order);
   };
 
-  // Auto-create a conversation if none exists.
+  // Auto-create a conversation if none exists. Safe to run before the persist
+  // restore lands: onRehydrateStorage merges rather than replaces, so a chat
+  // created here survives and stays active.
   useEffect(() => {
     if (!mounted) return;
     if (!activeId || !conversations[activeId]) {

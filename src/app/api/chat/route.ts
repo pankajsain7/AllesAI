@@ -19,7 +19,8 @@ type ChatMessage = {
 type RequestBody = {
   model: string;
   messages: ChatMessage[];
-  apiKey?: string;  opencodeApiKey?: string;
+  apiKey?: string;
+  opencodeApiKey?: string;
   bedrockApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;

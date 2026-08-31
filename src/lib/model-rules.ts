@@ -206,7 +206,8 @@ export function getModelAlias(modelOrId: Pick<ModelInfo, "id" | "label" | "famil
   const id = typeof modelOrId === "string" ? modelOrId : modelOrId.id;
   const label = typeof modelOrId === "string" ? modelOrId : modelOrId.label;
   const familyId = typeof modelOrId === "string" ? modelOrId : modelOrId.familyId;
-  const haystack = `${id} ${label} ${familyId}`.toLowerCase();  if (haystack.includes("gemma4") || haystack.includes("gemma-4") || haystack.includes("gemma 4")) return "Gemma 4";
+  const haystack = `${id} ${label} ${familyId}`.toLowerCase();
+  if (haystack.includes("gemma4") || haystack.includes("gemma-4") || haystack.includes("gemma 4")) return "Gemma 4";
   if (haystack.includes("llama-4") || haystack.includes("llama 4")) return "Llama 4";
   if (haystack.includes("nemotron")) return "Nemotron";
   if (haystack.includes("gpt-oss") || haystack.includes("gpt oss")) return "GPT";

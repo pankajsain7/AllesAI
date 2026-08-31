@@ -72,7 +72,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
-      bedrockEnabled,      opencodeEnabled,
+      bedrockEnabled,
+      opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
@@ -81,7 +82,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const accessSettings = useMemo(
     () => ({
       apiKey,
-      groqEnabled,      opencodeApiKey,
+      groqEnabled,
+      opencodeApiKey,
       opencodeEnabled,
       bedrockApiKey,
       bedrockEnabled,
@@ -304,7 +306,8 @@ export function ConsensusButton({ convId }: { convId: string }) {
           // Full fallback chain — server tries each silently on failure or
           // context overflow, so the user always gets a result.
           fallbackModels: mode === "council" ? councilFallbackModels : autoFallbackModels,
-          apiKey,          opencodeApiKey,
+          apiKey,
+          opencodeApiKey,
           bedrockApiKey,
           ollamaBaseUrl,
           ollamaApiKey,

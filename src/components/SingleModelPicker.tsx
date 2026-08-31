@@ -6,7 +6,8 @@ import {
   buildModelFamilies,
   getCustomProviderModelInfos,
   getCloudOllamaModelInfos,
-  getCloudOllamaModelNames,  getGroqExtraModelInfos,
+  getCloudOllamaModelNames,
+  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModelFamilyId,
   getOpenCodeModelInfos,
@@ -65,7 +66,8 @@ export function SingleModelPicker({
     return buildModelFamilies([
       ...baseRoutes,
       ...opencodeRoutes,
-      ...groqExtraRoutes,      ...hostedOllamaRoutes,
+      ...groqExtraRoutes,
+      ...hostedOllamaRoutes,
       ...localRoutes,
       ...customRoutes,
     ]);
@@ -78,7 +80,8 @@ export function SingleModelPicker({
     opencodeEnabled,
     opencodeModels,
     groqEnabled,
-    groqExtraModels,    ollamaCloudModels,
+    groqExtraModels,
+    ollamaCloudModels,
   ]);
 
   if (!conv) return null;

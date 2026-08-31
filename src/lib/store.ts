@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -1442,15 +1443,23 @@ export const useChat = create<ChatState>()(
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        // Anything created before the restore landed (zustand rehydrates after
+        // React hydration) must survive it, or the user gets bounced off the
+        // chat they are looking at.
+        const live = useChat.getState();
+        const inMemoryOnly = Object.fromEntries(
+          Object.entries(live.conversations).filter(([id]) => !state.conversations[id])
+        );
         // Always sanitize on load - don't rely solely on version-based migration
         const sanitizedConvs = Object.fromEntries(
-          Object.entries(state.conversations).map(([id, conv]) => [
+          Object.entries({ ...state.conversations, ...inMemoryOnly }).map(([id, conv]) => [
             id,
             sanitizeConversation(conv),
           ])
         );
+        const keepId = live.activeId ?? state.activeId;
         const conversations = pruneConversationsByRecency(
-          filterPersistableConversations(sanitizedConvs, state.activeId)
+          filterPersistableConversations(sanitizedConvs, keepId)
         );
         const sanitizedLast = dedupeModelIdsByFamily(
           Array.from(
@@ -1463,10 +1472,26 @@ export const useChat = create<ChatState>()(
         );
         useChat.setState({
           conversations,
-          activeId: pickActiveConversationId(state.activeId, conversations),
+          activeId: pickActiveConversationId(keepId, conversations),
           lastUsedModels: sanitizedLast.length > 0 ? sanitizedLast : DEFAULT_SELECTED_MODELS,
         });
       },
     }
   )
 );
+
+/**
+ * True once persisted chats have been read back from storage.
+ *
+ * Deliberately NOT used to gate rendering: zustand only reports hydration
+ * after its own restore resolves, so blocking on it can leave the UI blank.
+ * The restore-safety comes from onRehydrateStorage merging instead of
+ * replacing. Use this only for optional "restoring..." affordances.
+ */
+export function useChatHydrated(): boolean {
+  return useSyncExternalStore(
+    (onChange) => useChat.persist.onFinishHydration(onChange),
+    () => useChat.persist.hasHydrated(),
+    () => false
+  );
+}
