@@ -13,10 +13,11 @@
     "check:hydration-race": "node --import tsx scripts/check-hydration-race.mjs",
     "check:bedrock-toggle": "node --import tsx scripts/check-bedrock-toggle.mjs",
     "check:bedrock-selection": "node --import tsx scripts/check-bedrock-selection.mjs",
+    "check:key-forwarding": "node --import tsx scripts/check-client-key-forwarding.mjs",
     "check:consensus": "node --import tsx scripts/check-consensus.mjs",
     "check:consensus:live": "node --import tsx scripts/check-consensus.mjs --live",
     "check:chat": "node scripts/check-chat.mjs",
-    "check:all": "npm run check:models && npm run check:ssrf && npm run check:persistence && npm run check:hydration-race && npm run check:bedrock-toggle && npm run check:bedrock-selection && npm run check:consensus"
+    "check:all": "npm run check:models && npm run check:ssrf && npm run check:persistence && npm run check:hydration-race && npm run check:bedrock-toggle && npm run check:bedrock-selection && npm run check:key-forwarding && npm run check:consensus"
   },
   "dependencies": {
     "clsx": "^2.1.1",
