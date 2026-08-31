@@ -21,9 +21,7 @@ const check = (label, ok, detail = "") => {
 };
 
 const keys = {
-  apiKey: env.GROQ_API_KEY,
-  geminiApiKey: env.GEMINI_API_KEY,
-  opencodeApiKey: env.OpenCode_API_Key,
+  apiKey: env.GROQ_API_KEY,  opencodeApiKey: env.OpenCode_API_Key,
   ollamaApiKey: env.OLLAMA_API_KEY,
   bedrockApiKey: env.AWS_Bedrock_API_Key,
 };
@@ -72,9 +70,7 @@ const MODELS = [
   "bedrock/deepseek.v3.2",
   "bedrock/mistral.ministral-3-14b-instruct",
   "openai/gpt-oss-120b",
-  "qwen/qwen3.8-27b",
-  "gemini-3.5-flash",
-  "ollama-cloud/gemma4:31b",
+  "qwen/qwen3.8-27b",  "ollama-cloud/gemma4:31b",
   "opencode/laguna-s-2.1-free",
 ];
 

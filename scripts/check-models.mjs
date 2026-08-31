@@ -22,7 +22,6 @@ function loadEnv() {
 
 const env = loadEnv();
 const GROQ_KEY = env.GROQ_API_KEY;
-const GEMINI_KEY = env.GEMINI_API_KEY;
 const OLLAMA_KEY = env.OLLAMA_API_KEY;
 const OPENCODE_KEY = env.OpenCode_API_Key || env.OPENCODE_API_KEY;
 
@@ -55,29 +54,6 @@ async function probeOpenAiCompatible(url, key, model) {
     let content = "";
     try {
       content = JSON.parse(text)?.choices?.[0]?.message?.content ?? "";
-    } catch {
-      return { ok: false, status: res.status, detail: "unparseable JSON" };
-    }
-    if (!content.trim()) return { ok: false, status: res.status, detail: "empty content" };
-    return { ok: true, status: res.status, detail: shorten(content, 40) };
-  });
-}
-
-async function probeGemini(model) {
-  return withTimeout(async (signal) => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
-    const res = await fetch(url, {
-      method: "POST",
-      signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: "Reply with the single word: ok" }] }] }),
-    });
-    const text = await res.text();
-    if (res.status !== 200) return { ok: false, status: res.status, detail: shorten(text) };
-    let content = "";
-    try {
-      const parts = JSON.parse(text)?.candidates?.[0]?.content?.parts ?? [];
-      content = parts.map((p) => p.text ?? "").join("");
     } catch {
       return { ok: false, status: res.status, detail: "unparseable JSON" };
     }
@@ -123,10 +99,6 @@ const TARGETS = [
     provider: "groq",
     model: m,
   })),
-  ...["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-31b-it"].map((m) => ({
-    provider: "gemini",
-    model: m,
-  })),
   ...[
     "big-pickle",
     "mimo-v2.5-free",
@@ -145,10 +117,6 @@ async function probe(target) {
     if (provider === "groq") {
       if (!GROQ_KEY) return { ...target, ok: false, detail: "no GROQ_API_KEY" };
       return { ...target, ...(await probeOpenAiCompatible("https://api.groq.com/openai/v1/chat/completions", GROQ_KEY, model)) };
-    }
-    if (provider === "gemini") {
-      if (!GEMINI_KEY) return { ...target, ok: false, detail: "no GEMINI_API_KEY" };
-      return { ...target, ...(await probeGemini(model)) };
     }
     if (provider === "opencode") {
       if (!OPENCODE_KEY) return { ...target, ok: false, detail: "no OpenCode_API_Key" };

@@ -58,9 +58,7 @@ const LETTERS: Record<ProviderKey, string> = {
 
 const API_LETTERS: Record<ApiProviderKey, string> = {
   bedrock: "BR",
-  groq: "GQ",
-  gemini: "GG",
-  opencode: "OZ",
+  groq: "GQ",  opencode: "OZ",
   "ollama-cloud": "OC",
   "ollama-local": "OL",
   custom: "CU",

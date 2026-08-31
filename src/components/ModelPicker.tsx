@@ -7,7 +7,6 @@ import {
   getCustomProviderModelInfos,
   getCloudOllamaModelInfos,
   getCloudOllamaModelNames,
-  getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModel,
@@ -43,7 +42,6 @@ export function ModelPicker({ convId }: { convId: string }) {
   const setSelectedModels = useChat((s) => s.setSelectedModels);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
-  const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
@@ -52,19 +50,17 @@ export function ModelPicker({ convId }: { convId: string }) {
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
-  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
       bedrockEnabled,
-      geminiEnabled,
       opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    [cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const baseRoutes = useMemo(
@@ -105,23 +101,17 @@ export function ModelPicker({ convId }: { convId: string }) {
     [groqEnabled, groqExtraModels]
   );
 
-  const geminiExtraRoutes = useMemo(
-    () => (geminiEnabled ? getGeminiExtraModelInfos(geminiExtraModels) : []),
-    [geminiEnabled, geminiExtraModels]
-  );
-
   const families = useMemo(
     () =>
       buildModelFamilies([
         ...baseRoutes,
         ...opencodeRoutes,
         ...groqExtraRoutes,
-        ...geminiExtraRoutes,
         ...hostedOllamaRoutes,
         ...localRoutes,
         ...customRoutes,
       ]),
-    [baseRoutes, opencodeRoutes, groqExtraRoutes, geminiExtraRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
+    [baseRoutes, opencodeRoutes, groqExtraRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
   );
 
   const availableFamilyIds = useMemo(

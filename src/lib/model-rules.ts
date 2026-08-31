@@ -74,24 +74,16 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "opencode/big-pickle": { tier: "backup", latencyS: 0.9 },
   "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2.2 },
   "opencode/mimo-v2.5-free": { tier: "backup", latencyS: 6 },
-
-  // --- Gemini. Deliberately last-resort: slowest to first token of the
-  // verified providers, and its free tier exhausts quickly (429).
-  "gemini-3.5-flash": { tier: "backup", latencyS: 2.4 },
-  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.5 },
-  "gemma-4-31b-it": { tier: "backup", latencyS: 1.2 },
-  "gemini-3.6-flash": { tier: "backup", latencyS: 6 },
 };
 
-// Providers are tried in this order when ranking ties. Gemini is last by
-// request; Bedrock leads because it measured fastest with the most headroom.
+// Providers are tried in this order when ranking ties. Bedrock leads because it
+// measured fastest with the most long-context headroom.
 export const CONSENSUS_PROVIDER_PRIORITY: ApiProviderKey[] = [
   "bedrock",
   "groq",
   "ollama-cloud",
   "opencode",
   "ollama-local",
-  "gemini",
   "custom",
 ];
 
@@ -137,9 +129,6 @@ export function isFastEnoughForPrimaryRole(modelId: string): boolean {
 function isConsensusAllowedModel(model: Pick<ModelInfo, "id" | "apiProvider">): boolean {
   if (getConsensusRosterEntry(model.id)) return true;
   if (model.apiProvider === "bedrock") return true;
-  // All Gemini models are allowed — they have large context windows and strong
-  // synthesis quality, making them ideal fallbacks for large transcripts.
-  if (model.apiProvider === "gemini") return true;
   if (model.apiProvider === "ollama-cloud" || model.apiProvider === "ollama-local") {
     const name = model.id
       .replace(/^ollama-cloud\//, "")
@@ -179,8 +168,6 @@ export function canUseModelForCouncil(model: ModelInfo): boolean {
 type ProviderAccessSettings = {
   apiKey?: string;
   groqEnabled: boolean;
-  geminiApiKey?: string;
-  geminiEnabled: boolean;
   opencodeApiKey?: string;
   opencodeEnabled: boolean;
   bedrockApiKey?: string;
@@ -209,7 +196,6 @@ export function hasProviderAccessForConsensus(
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled && Boolean(settings.apiKey?.trim());
   if (apiProvider === "bedrock") return settings.bedrockEnabled && Boolean(settings.bedrockApiKey?.trim());
-  if (apiProvider === "gemini") return settings.geminiEnabled && Boolean(settings.geminiApiKey?.trim());
   if (apiProvider === "opencode") return settings.opencodeEnabled && Boolean(settings.opencodeApiKey?.trim());
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled && Boolean(settings.ollamaApiKey?.trim());
   if (apiProvider === "ollama-local") return settings.localEnabled;
@@ -220,10 +206,7 @@ export function getModelAlias(modelOrId: Pick<ModelInfo, "id" | "label" | "famil
   const id = typeof modelOrId === "string" ? modelOrId : modelOrId.id;
   const label = typeof modelOrId === "string" ? modelOrId : modelOrId.label;
   const familyId = typeof modelOrId === "string" ? modelOrId : modelOrId.familyId;
-  const haystack = `${id} ${label} ${familyId}`.toLowerCase();
-
-  if (haystack.includes("gemini-2.5") || haystack.includes("gemini flash lite")) return "Gemini 2.5";
-  if (haystack.includes("gemma4") || haystack.includes("gemma-4") || haystack.includes("gemma 4")) return "Gemma 4";
+  const haystack = `${id} ${label} ${familyId}`.toLowerCase();  if (haystack.includes("gemma4") || haystack.includes("gemma-4") || haystack.includes("gemma 4")) return "Gemma 4";
   if (haystack.includes("llama-4") || haystack.includes("llama 4")) return "Llama 4";
   if (haystack.includes("nemotron")) return "Nemotron";
   if (haystack.includes("gpt-oss") || haystack.includes("gpt oss")) return "GPT";

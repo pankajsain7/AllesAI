@@ -44,18 +44,13 @@ function settingsWith(overrides) {
 }
 
 const KEYS = {
-  groq: { apiKey: env.GROQ_API_KEY ?? "", groqEnabled: true },
-  gemini: { geminiApiKey: env.GEMINI_API_KEY ?? "", geminiEnabled: true },
-  opencode: { opencodeApiKey: env.OpenCode_API_Key ?? "", opencodeEnabled: true },
+  groq: { apiKey: env.GROQ_API_KEY ?? "", groqEnabled: true },  opencode: { opencodeApiKey: env.OpenCode_API_Key ?? "", opencodeEnabled: true },
   bedrock: { bedrockApiKey: env.AWS_Bedrock_API_Key ?? "", bedrockEnabled: true },
   ollama: { ollamaApiKey: env.OLLAMA_API_KEY ?? "", cloudOllamaEnabled: true },
 };
 const NO_KEYS = {
   apiKey: "",
-  groqEnabled: false,
-  geminiApiKey: "",
-  geminiEnabled: false,
-  opencodeApiKey: "",
+  groqEnabled: false,  opencodeApiKey: "",
   opencodeEnabled: false,
   bedrockApiKey: "",
   bedrockEnabled: false,
@@ -66,13 +61,10 @@ const NO_KEYS = {
 
 const SCENARIOS = [
   ["no keys at all", {}],
-  ["groq only", KEYS.groq],
-  ["gemini only", KEYS.gemini],
-  ["opencode only", KEYS.opencode],
+  ["groq only", KEYS.groq],  ["opencode only", KEYS.opencode],
   ["bedrock only", KEYS.bedrock],
-  ["ollama cloud only", KEYS.ollama],
-  ["groq + gemini", { ...KEYS.groq, ...KEYS.gemini }],
-  ["all providers", { ...KEYS.bedrock, ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama }],
+  ["ollama cloud only", KEYS.ollama],  ["bedrock + groq", { ...KEYS.bedrock, ...KEYS.groq }],
+  ["all providers", { ...KEYS.bedrock, ...KEYS.groq, ...KEYS.opencode, ...KEYS.ollama }],
 ];
 
 let failures = 0;
@@ -121,7 +113,7 @@ for (const [label, overrides] of SCENARIOS) {
 
 // Provider diversity is the whole point of the backup bench.
 const allPlan = planConsensusRun(
-  settingsWith({ ...NO_KEYS, ...KEYS.bedrock, ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama })
+  settingsWith({ ...NO_KEYS, ...KEYS.bedrock, ...KEYS.groq, ...KEYS.opencode, ...KEYS.ollama })
 );
 const debaterProviders = new Set(
   allPlan.debaters.map((id) => allPlan.pool.find((m) => m.id === id)?.provider)
@@ -145,9 +137,7 @@ if (process.argv.includes("--live")) {
       { model: "Model A", content: "Yes, 97 is prime." },
       { model: "Model B", content: "No, 97 is divisible by 7." },
     ],
-    apiKey: env.GROQ_API_KEY,
-    geminiApiKey: env.GEMINI_API_KEY,
-    opencodeApiKey: env.OpenCode_API_Key,
+    apiKey: env.GROQ_API_KEY,    opencodeApiKey: env.OpenCode_API_Key,
     bedrockApiKey: env.AWS_Bedrock_API_Key,
     ollamaApiKey: env.OLLAMA_API_KEY,
   };
@@ -238,8 +228,8 @@ if (process.argv.includes("--live")) {
       consensusModel: deadModel,
       fallbackModels: bench,
       judgeModels: [],
-      // Second scenario knocks out Gemini entirely by sending a bad key.
-      ...(label.includes("bad key") ? { geminiApiKey: "invalid-key-for-fault-test" } : {}),
+      // Second scenario knocks out Bedrock entirely by sending a bad key.
+      ...(label.includes("bad key") ? { bedrockApiKey: "invalid-key-for-fault-test" } : {}),
     };
     const t0 = Date.now();
     const res = await fetch(`${BASE}/api/consensus`, {

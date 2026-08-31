@@ -18,7 +18,7 @@ import { ChevronDown, ExternalLink, Plus, RefreshCw, Search, Settings as Setting
 type BrowsableModel = { id: string; name?: string; model?: string };
 
 // Shared fetch/open/loading/error state for every "Browse models" panel
-// (OpenCode, Groq, Gemini, and each custom provider).
+// (OpenCode, Groq, and each custom provider).
 function useModelBrowser() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -254,17 +254,12 @@ export function SettingsDialog() {
   const [localError, setLocalError] = useState<string | null>(null);
   const opencodeBrowser = useModelBrowser();
   const groqBrowser = useModelBrowser();
-  const geminiBrowser = useModelBrowser();
   const cloudOllamaBrowser = useModelBrowser();
   const s = useSettings();
   const removeApiProviderModels = useChat((state) => state.removeApiProviderModels);
   const removeModelId = useChat((state) => state.removeModelId);
 
   const groqDefaultModels = MODEL_CATALOG.filter((m) => m.apiProvider === "groq").map((m) => ({
-    label: m.shortLabel ?? m.label,
-    free: m.free,
-  }));
-  const geminiDefaultModels = MODEL_CATALOG.filter((m) => m.apiProvider === "gemini").map((m) => ({
     label: m.shortLabel ?? m.label,
     free: m.free,
   }));
@@ -278,9 +273,6 @@ export function SettingsDialog() {
   }));
   const groqDefaultModelIds = MODEL_CATALOG
     .filter((m) => m.apiProvider === "groq")
-    .map((m) => m.id);
-  const geminiDefaultModelIds = MODEL_CATALOG
-    .filter((m) => m.apiProvider === "gemini")
     .map((m) => m.id);
   const opencodeDefaultModelIds = Object.keys(OPENCODE_KNOWN_MODELS);
   const ollamaCloudDefaultModelIds = PRESET_CLOUD_OLLAMA_MODELS.map((m) => m.name);
@@ -307,18 +299,6 @@ export function SettingsDialog() {
     const has = s.groqExtraModels.includes(id);
     s.setGroqExtraModels(has ? s.groqExtraModels.filter((m) => m !== id) : [...s.groqExtraModels, id]);
     if (has) removeModelId(`groq/${id}`);
-  };
-
-  const browseGeminiModels = () => {
-    const params = new URLSearchParams();
-    if (s.geminiApiKey) params.set("apiKey", s.geminiApiKey);
-    geminiBrowser.browse(`/api/gemini/models?${params.toString()}`);
-  };
-
-  const toggleGeminiModel = (id: string) => {
-    const has = s.geminiExtraModels.includes(id);
-    s.setGeminiExtraModels(has ? s.geminiExtraModels.filter((m) => m !== id) : [...s.geminiExtraModels, id]);
-    if (has) removeModelId(id);
   };
 
   const browseCloudOllamaModels = () => {
@@ -366,11 +346,6 @@ export function SettingsDialog() {
   const setGroqEnabled = (enabled: boolean) => {
     s.setGroqEnabled(enabled);
     if (!enabled) removeApiProviderModels("groq");
-  };
-
-  const setGeminiEnabled = (enabled: boolean) => {
-    s.setGeminiEnabled(enabled);
-    if (!enabled) removeApiProviderModels("gemini");
   };
 
   const setOpencodeEnabled = (enabled: boolean) => {
@@ -424,8 +399,8 @@ export function SettingsDialog() {
                       ok={s.groqEnabled && Boolean(s.apiKey)}
                     />
                     <StatusPill
-                      label={s.geminiEnabled ? (s.geminiApiKey ? "Gemini ready" : "Gemini key missing") : "Gemini off"}
-                      ok={s.geminiEnabled && Boolean(s.geminiApiKey)}
+                      label={s.bedrockEnabled ? (s.bedrockApiKey ? "Bedrock ready" : "Bedrock key missing") : "Bedrock off"}
+                      ok={s.bedrockEnabled && Boolean(s.bedrockApiKey)}
                     />
                     <StatusPill
                       label={s.opencodeEnabled ? (s.opencodeApiKey ? "OpenCode ready" : "OpenCode key missing") : "OpenCode off"}
@@ -490,63 +465,6 @@ export function SettingsDialog() {
                             loading={groqBrowser.loading}
                             error={groqBrowser.error}
                             excludeIds={groqDefaultModelIds}
-                          />
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 border-t border-[var(--border)] pt-4">
-                    <Toggle on={s.geminiEnabled} onChange={setGeminiEnabled} label="Enable Gemini API models" />
-                    <div className="text-[11px] text-[var(--fg-muted)]">
-                      Google AI Studio routes for Gemini models and vision-capable requests.
-                    </div>
-                    {s.geminiEnabled && (
-                      <>
-                        <label className="block text-xs font-medium text-[var(--fg)]">
-                          Gemini API key{" "}
-                          <a
-                            href="https://aistudio.google.com/api-keys"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="ml-1 inline-flex items-center gap-0.5 text-[var(--accent)] hover:underline"
-                          >
-                            get key <ExternalLink size={10} />
-                          </a>
-                        </label>
-                        <input
-                          type="password"
-                          value={s.geminiApiKey}
-                          onChange={(e) => s.setGeminiApiKey(e.target.value)}
-                          placeholder="AIza..."
-                          className="w-full rounded border border-[var(--border)] bg-[var(--bg-soft)] px-2 py-1.5 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)] focus:border-[var(--border-strong)]"
-                        />
-                        <DefaultModelsDisclosure
-                          count={geminiDefaultModels.length}
-                          models={geminiDefaultModels}
-                        />
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-[var(--fg-muted)]">
-                            {s.geminiExtraModels.length} extra model{s.geminiExtraModels.length === 1 ? "" : "s"} imported
-                          </span>
-                          <button
-                            type="button"
-                            onClick={browseGeminiModels}
-                            disabled={geminiBrowser.loading || !s.geminiApiKey}
-                            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[11px] text-[var(--fg)] hover:border-[var(--border-strong)] disabled:opacity-60"
-                          >
-                            <RefreshCw size={11} className={geminiBrowser.loading ? "animate-spin" : ""} />
-                            Browse models
-                          </button>
-                        </div>
-                        {geminiBrowser.open && (
-                          <ModelBrowsePanel
-                            models={geminiBrowser.models}
-                            selected={s.geminiExtraModels}
-                            onToggle={toggleGeminiModel}
-                            loading={geminiBrowser.loading}
-                            error={geminiBrowser.error}
-                            excludeIds={geminiDefaultModelIds}
                           />
                         )}
                       </>

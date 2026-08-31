@@ -21,9 +21,7 @@ type MultiItem = {
 
 type MultiRequestBody = {
   items: MultiItem[];
-  apiKey?: string;
-  geminiApiKey?: string;
-  opencodeApiKey?: string;
+  apiKey?: string;  opencodeApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;
   ollamaCloudBaseUrl?: string;
@@ -44,9 +42,7 @@ export async function POST(req: NextRequest) {
 
   const origin = req.nextUrl.origin;
   const shared = {
-    apiKey: body.apiKey,
-    geminiApiKey: body.geminiApiKey,
-    opencodeApiKey: body.opencodeApiKey,
+    apiKey: body.apiKey,    opencodeApiKey: body.opencodeApiKey,
     ollamaBaseUrl: body.ollamaBaseUrl,
     ollamaApiKey: body.ollamaApiKey,
     ollamaCloudBaseUrl: body.ollamaCloudBaseUrl,

@@ -4,7 +4,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   CONSENSUS_MODEL,
-  DEFAULT_GEMINI_EXTRA_MODEL_IDS,
   DEFAULT_OPENCODE_MODEL_IDS,
   DEFAULT_BEDROCK_MODEL_IDS,
   getBedrockModelInfos,
@@ -13,7 +12,6 @@ import {
   dedupeModelIdsByFamily,
   getCloudOllamaModelInfos,
   getCloudOllamaModelNames,
-  getGeminiExtraModelInfos,
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModel,
@@ -180,10 +178,6 @@ export type SettingsState = {
   setApiKey: (k: string) => void;
   groqEnabled: boolean;
   setGroqEnabled: (v: boolean) => void;
-  geminiApiKey: string;
-  setGeminiApiKey: (k: string) => void;
-  geminiEnabled: boolean;
-  setGeminiEnabled: (v: boolean) => void;
   opencodeApiKey: string;
   setOpencodeApiKey: (k: string) => void;
   opencodeEnabled: boolean;
@@ -198,8 +192,6 @@ export type SettingsState = {
   setBedrockModels: (models: string[]) => void;
   groqExtraModels: string[];
   setGroqExtraModels: (models: string[]) => void;
-  geminiExtraModels: string[];
-  setGeminiExtraModels: (models: string[]) => void;
   systemPrompt: string;
   setSystemPrompt: (s: string) => void;
   webSearch: boolean;
@@ -234,7 +226,7 @@ export type SettingsState = {
 
 export type ProviderToggleSettings = Pick<
   SettingsState,
-  "groqEnabled" | "geminiEnabled" | "opencodeEnabled" | "cloudOllamaEnabled" | "localEnabled" | "bedrockEnabled"
+  "groqEnabled" | "opencodeEnabled" | "cloudOllamaEnabled" | "localEnabled" | "bedrockEnabled"
 >;
 
 export const useSettings = create<SettingsState>()(
@@ -244,10 +236,6 @@ export const useSettings = create<SettingsState>()(
       setApiKey: (k) => set({ apiKey: k }),
       groqEnabled: true,
       setGroqEnabled: (v) => set({ groqEnabled: v }),
-      geminiApiKey: "",
-      setGeminiApiKey: (k) => set({ geminiApiKey: k }),
-      geminiEnabled: true,
-      setGeminiEnabled: (v) => set({ geminiEnabled: v }),
       opencodeApiKey: "",
       setOpencodeApiKey: (k) => set({ opencodeApiKey: k }),
       opencodeEnabled: false,
@@ -262,8 +250,6 @@ export const useSettings = create<SettingsState>()(
       setBedrockModels: (models) => set({ bedrockModels: sanitizeModelNames(models) }),
       groqExtraModels: [],
       setGroqExtraModels: (models) => set({ groqExtraModels: sanitizeModelNames(models) }),
-      geminiExtraModels: DEFAULT_GEMINI_EXTRA_MODEL_IDS,
-      setGeminiExtraModels: (models) => set({ geminiExtraModels: sanitizeModelNames(models) }),
       systemPrompt: "You are a helpful, concise assistant.",
       setSystemPrompt: (s) => set({ systemPrompt: s }),
       webSearch: false,
@@ -310,8 +296,6 @@ export const useSettings = create<SettingsState>()(
         return {
           apiKey: state.apiKey ?? "",
           groqEnabled: state.groqEnabled ?? true,
-          geminiApiKey: state.geminiApiKey ?? "",
-          geminiEnabled: state.geminiEnabled ?? true,
           opencodeApiKey: state.opencodeApiKey ?? "",
           opencodeEnabled: state.opencodeEnabled ?? false,
           opencodeModels: sanitizeModelNames(state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS),
@@ -319,7 +303,6 @@ export const useSettings = create<SettingsState>()(
           bedrockEnabled: state.bedrockEnabled ?? true,
           bedrockModels: sanitizeModelNames(state.bedrockModels ?? DEFAULT_BEDROCK_MODEL_IDS),
           groqExtraModels: sanitizeModelNames(state.groqExtraModels ?? []),
-          geminiExtraModels: sanitizeModelNames(state.geminiExtraModels ?? []),
           systemPrompt: state.systemPrompt ?? "You are a helpful, concise assistant.",
           webSearch: state.webSearch ?? false,
           tavilyApiKey: state.tavilyApiKey ?? "",
@@ -338,13 +321,10 @@ export const useSettings = create<SettingsState>()(
       partialize: (state) => ({
         apiKey: state.apiKey,
         groqEnabled: state.groqEnabled,
-        geminiApiKey: state.geminiApiKey,
-        geminiEnabled: state.geminiEnabled,
         opencodeApiKey: state.opencodeApiKey,
         opencodeEnabled: state.opencodeEnabled,
         opencodeModels: state.opencodeModels,
         groqExtraModels: state.groqExtraModels,
-        geminiExtraModels: state.geminiExtraModels,
         systemPrompt: state.systemPrompt,
         webSearch: state.webSearch,
         tavilyApiKey: state.tavilyApiKey,
@@ -372,7 +352,6 @@ export function isApiProviderEnabled(
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled;
   if (apiProvider === "bedrock") return settings.bedrockEnabled;
-  if (apiProvider === "gemini") return settings.geminiEnabled;
   if (apiProvider === "opencode") return settings.opencodeEnabled;
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled;
   if (apiProvider === "ollama-local") return settings.localEnabled;
@@ -414,7 +393,6 @@ export function getEnabledRoutes(settings: SettingsState): ModelInfo[] {
     ...(settings.bedrockEnabled ? getBedrockModelInfos(settings.bedrockModels) : []),
     ...(settings.opencodeEnabled ? getOpenCodeModelInfos(settings.opencodeModels) : []),
     ...(settings.groqEnabled ? getGroqExtraModelInfos(settings.groqExtraModels) : []),
-    ...(settings.geminiEnabled ? getGeminiExtraModelInfos(settings.geminiExtraModels) : []),
     ...getCustomProviderModelInfos(settings.customProviders),
     ...(settings.cloudOllamaEnabled
       ? getCloudOllamaModelInfos(getCloudOllamaModelNames(settings.ollamaCloudModels))
@@ -584,11 +562,15 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "ollama-cloud/minimax-m2.5:cloud": "ollama-cloud/minimax-m2.5",
   // Default hosted Qwen family moved from qwen3.5 to qwen3-coder.
   "ollama-cloud/qwen3.5:397b": "ollama-cloud/qwen3-coder:480b",
-  // Old Gemini IDs -> current catalog default.
-  "gemini-2.0-flash": "gemini-3.5-flash",
-  "gemini-2.5-flash": "gemini-3.5-flash",
-  "gemini-2.5-pro": "gemini-3.5-flash",
-  "gemini-2.5-flash-lite": "gemini-3.5-flash",
+  // Gemini was removed as a provider; scrub any persisted Gemini selection.
+  "gemini-2.0-flash": "",
+  "gemini-2.5-flash": "",
+  "gemini-2.5-pro": "",
+  "gemini-2.5-flash-lite": "",
+  "gemini-3.5-flash": "",
+  "gemini-3.6-flash": "",
+  "gemini-3.5-flash-lite": "",
+  "gemma-4-31b-it": "",
   // Groq retired both Llama chat models (404 model_not_found as of 2026-08-28).
   "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
   // Deduped: same family and parameter size as qwen3.8-27b, one generation older.
@@ -610,9 +592,7 @@ export function normalizeModelId(modelId: string): string | null {
   if (isCustomModelId(normalized)) return normalized;
   if (isOllamaModelId(normalized)) return normalized;
   if (isOpenCodeModelId(normalized)) return normalized;
-  if (normalized.startsWith("groq/")) return normalized;
-  if (normalized.startsWith("gemini")) return normalized;
-  if (isCloudOllamaModelId(normalized)) return normalized;
+  if (normalized.startsWith("groq/")) return normalized;  if (isCloudOllamaModelId(normalized)) return normalized;
   return VALID_MODEL_IDS.has(normalized) ? normalized : null;
 }
 

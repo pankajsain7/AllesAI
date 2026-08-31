@@ -20,7 +20,6 @@ export type ApiProviderKey =
   | "opencode"
   | "ollama-cloud"
   | "ollama-local"
-  | "gemini"
   | "custom";
 
 export type ProviderInfo = {
@@ -66,12 +65,6 @@ export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
     shortName: "Groq",
     color: "#f55036",
   },
-  gemini: {
-    key: "gemini",
-    name: "Gemini API",
-    shortName: "Gemini",
-    color: "#1f2937",
-  },
   opencode: {
     key: "opencode",
     name: "OpenCode Zen",
@@ -108,21 +101,20 @@ export const PROVIDER_ORDER: ProviderKey[] = [
   "nvidia",
   "meta",
   "minimax",
+  "gemini",
   "opencode",
   "ollama",
   "bedrock",
-  "gemini",
   "custom",
 ];
 
 // Bedrock first: measured fastest to first token with the most long-context
-// headroom. Gemini sits near the bottom by request.
+// headroom.
 export const API_PROVIDER_ORDER: ApiProviderKey[] = [
   "bedrock",
   "groq",
   "ollama-cloud",
   "opencode",
   "ollama-local",
-  "gemini",
   "custom",
 ];

@@ -51,7 +51,7 @@ export type ConsensusPlan = {
   blockers: string[];
 };
 
-const PROVIDER_ORDER: ApiProviderKey[] = ["bedrock", "groq", "ollama-cloud", "opencode", "ollama-local", "gemini"];
+const PROVIDER_ORDER: ApiProviderKey[] = ["bedrock", "groq", "ollama-cloud", "opencode", "ollama-local"];
 
 // A bench deeper than this is pointless: every extra model is one more upstream
 // timeout the user waits through before the run gives up. It also keeps the
@@ -112,25 +112,21 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
         ? settings.groqEnabled
         : provider === "bedrock"
           ? settings.bedrockEnabled
-          : provider === "gemini"
-            ? settings.geminiEnabled
-            : provider === "opencode"
-              ? settings.opencodeEnabled
-              : provider === "ollama-cloud"
-                ? settings.cloudOllamaEnabled
-                : settings.localEnabled;
+          : provider === "opencode"
+            ? settings.opencodeEnabled
+            : provider === "ollama-cloud"
+              ? settings.cloudOllamaEnabled
+              : settings.localEnabled;
     const hasKey =
       provider === "groq"
         ? Boolean(settings.apiKey?.trim())
         : provider === "bedrock"
           ? Boolean(settings.bedrockApiKey?.trim())
-          : provider === "gemini"
-            ? Boolean(settings.geminiApiKey?.trim())
-            : provider === "opencode"
-              ? Boolean(settings.opencodeApiKey?.trim())
-              : provider === "ollama-cloud"
-                ? Boolean(settings.ollamaApiKey?.trim())
-                : true; // local Ollama needs no credential
+          : provider === "opencode"
+            ? Boolean(settings.opencodeApiKey?.trim())
+            : provider === "ollama-cloud"
+              ? Boolean(settings.ollamaApiKey?.trim())
+              : true; // local Ollama needs no credential
     return {
       provider,
       name: API_PROVIDERS[provider]?.name ?? provider,

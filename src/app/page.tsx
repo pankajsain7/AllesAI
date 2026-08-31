@@ -40,8 +40,6 @@ export default function Home() {
   const newConversation = useChat((s) => s.newConversation);
   const apiKey = useSettings((s) => s.apiKey);
   const groqEnabled = useSettings((s) => s.groqEnabled);
-  const geminiApiKey = useSettings((s) => s.geminiApiKey);
-  const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeApiKey = useSettings((s) => s.opencodeApiKey);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const ollamaApiKey = useSettings((s) => s.ollamaApiKey);
@@ -53,7 +51,6 @@ export default function Home() {
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const opencodeModels = useSettings((s) => s.opencodeModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
-  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
   const customProviders = useSettings((s) => s.customProviders);
 
   const handleDragStart = (id: string) => {
@@ -93,7 +90,6 @@ export default function Home() {
   // Reference the provider settings so this render is subscribed to them;
   // filterSelectableModelIds reads the full settings state internally.
   void groqEnabled;
-  void geminiEnabled;
   void opencodeEnabled;
   void cloudOllamaEnabled;
   void localEnabled;
@@ -101,7 +97,6 @@ export default function Home() {
   void availableLocalModels;
   void opencodeModels;
   void groqExtraModels;
-  void geminiExtraModels;
   void customProviders;
   const visibleSelectedModels = conv
     ? filterSelectableModelIds(conv.selectedModels)
@@ -137,11 +132,6 @@ export default function Home() {
     groqEnabled &&
     !apiKey &&
     selectedInfos.some((model) => model.apiProvider === "groq");
-  const needsGeminiKey =
-    !!conv &&
-    geminiEnabled &&
-    !geminiApiKey &&
-    selectedInfos.some((model) => model.apiProvider === "gemini");
   const needsOpencodeKey =
     !!conv &&
     opencodeEnabled &&
@@ -157,7 +147,6 @@ export default function Home() {
     (!cloudOllamaEnabled || !ollamaApiKey);
   const setupNeeds = [
     needsGroqKey ? "Groq API key" : null,
-    needsGeminiKey ? "Gemini API key" : null,
     needsOpencodeKey ? "OpenCode API key" : null,
     needsLocalOllama ? "enable Local Ollama" : null,
     needsCloudOllama

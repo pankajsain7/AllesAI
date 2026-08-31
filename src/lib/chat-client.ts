@@ -213,9 +213,7 @@ export async function streamModel(opts: {
       body: JSON.stringify({
         model: resolvedModelId,
         messages: toApiMessages(history, settings.systemPrompt, opts.webContext),
-        apiKey: settings.apiKey || undefined,
-        geminiApiKey: settings.geminiApiKey || undefined,
-        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,
@@ -423,9 +421,7 @@ export async function enhancePrompt(
         { role: "system", content: ENHANCE_SYSTEM_PROMPT },
         { role: "user", content: prompt },
       ],
-      apiKey: settings.apiKey || undefined,
-      geminiApiKey: settings.geminiApiKey || undefined,
-      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+      apiKey: settings.apiKey || undefined,      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
       ollamaApiKey: settings.ollamaApiKey || undefined,
       ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
       customProviders: settings.customProviders.length ? settings.customProviders : undefined,
@@ -500,7 +496,7 @@ export async function pickBestModels(
   const settings = useSettings.getState();
   const routerModel =
     normalizeModelId(settings.consensusModel) ??
-    candidates.find((c) => c.apiProvider === "gemini")?.id ??
+    candidates.find((c) => c.apiProvider === "bedrock")?.id ??
     candidates[0].id;
 
   const list = candidates
@@ -560,9 +556,7 @@ async function callModelOnce(
     body: JSON.stringify({
       model: resolvedModelId,
       messages,
-      apiKey: settings.apiKey || undefined,
-      geminiApiKey: settings.geminiApiKey || undefined,
-      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
+      apiKey: settings.apiKey || undefined,      ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
       ollamaApiKey: settings.ollamaApiKey || undefined,
       ollamaCloudBaseUrl: settings.ollamaCloudBaseUrl || undefined,
       customProviders: settings.customProviders.length ? settings.customProviders : undefined,
@@ -769,7 +763,7 @@ async function runSuperPrompt(convId: string, prompt: string, ctrl: AbortControl
       normalizeModelId(settings.consensusModel) &&
       candidates.some((c) => c.id === normalizeModelId(settings.consensusModel))
         ? (normalizeModelId(settings.consensusModel) as string)
-        : candidates.find((c) => c.apiProvider === "gemini")?.id ?? candidates[0].id;
+        : candidates.find((c) => c.apiProvider === "bedrock")?.id ?? candidates[0].id;
     const fallbackModels = Array.from(
       new Set([...picked, ...candidates.map((c) => c.id)])
     ).filter((id) => id !== synthesizer);
@@ -786,9 +780,7 @@ async function runSuperPrompt(convId: string, prompt: string, ctrl: AbortControl
         consensusModel: synthesizer,
         fallbackModels,
         webSearch: Boolean(webContext),
-        apiKey: settings.apiKey || undefined,
-        geminiApiKey: settings.geminiApiKey || undefined,
-        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,
@@ -1009,9 +1001,7 @@ async function streamMultiplexed(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         items,
-        apiKey: settings.apiKey || undefined,
-        geminiApiKey: settings.geminiApiKey || undefined,
-        opencodeApiKey: settings.opencodeApiKey || undefined,
+        apiKey: settings.apiKey || undefined,        opencodeApiKey: settings.opencodeApiKey || undefined,
         bedrockApiKey: settings.bedrockApiKey || undefined,
         ollamaBaseUrl: settings.ollamaBaseUrl || undefined,
         ollamaApiKey: settings.ollamaApiKey || undefined,

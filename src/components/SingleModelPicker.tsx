@@ -6,9 +6,7 @@ import {
   buildModelFamilies,
   getCustomProviderModelInfos,
   getCloudOllamaModelInfos,
-  getCloudOllamaModelNames,
-  getGeminiExtraModelInfos,
-  getGroqExtraModelInfos,
+  getCloudOllamaModelNames,  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModelFamilyId,
   getOpenCodeModelInfos,
@@ -35,7 +33,6 @@ export function SingleModelPicker({
   const setSingleModel = useChat((s) => s.setSingleModel);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
-  const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
@@ -44,11 +41,10 @@ export function SingleModelPicker({
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
-  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
-    () => ({ groqEnabled, bedrockEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled }),
-    [bedrockEnabled, cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    () => ({ groqEnabled, bedrockEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled }),
+    [bedrockEnabled, cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const families = useMemo(() => {
@@ -66,13 +62,10 @@ export function SingleModelPicker({
     const customRoutes = getCustomProviderModelInfos(customProviders);
     const opencodeRoutes = opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : [];
     const groqExtraRoutes = groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : [];
-    const geminiExtraRoutes = geminiEnabled ? getGeminiExtraModelInfos(geminiExtraModels) : [];
     return buildModelFamilies([
       ...baseRoutes,
       ...opencodeRoutes,
-      ...groqExtraRoutes,
-      ...geminiExtraRoutes,
-      ...hostedOllamaRoutes,
+      ...groqExtraRoutes,      ...hostedOllamaRoutes,
       ...localRoutes,
       ...customRoutes,
     ]);
@@ -85,10 +78,7 @@ export function SingleModelPicker({
     opencodeEnabled,
     opencodeModels,
     groqEnabled,
-    groqExtraModels,
-    geminiEnabled,
-    geminiExtraModels,
-    ollamaCloudModels,
+    groqExtraModels,    ollamaCloudModels,
   ]);
 
   if (!conv) return null;

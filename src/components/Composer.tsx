@@ -16,9 +16,7 @@ import {
   buildModelFamilies,
   dedupeModelIdsByFamily,
   getCloudOllamaModelInfos,
-  getCloudOllamaModelNames,
-  getGeminiExtraModelInfos,
-  getGroqExtraModelInfos,
+  getCloudOllamaModelNames,  getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModel,
   getModelFamilyId,
@@ -36,7 +34,6 @@ export function Composer({ convId }: { convId: string }) {
   const setWebSearch = useSettings((s) => s.setWebSearch);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
-  const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
@@ -45,7 +42,6 @@ export function Composer({ convId }: { convId: string }) {
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
-  const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
   const [text, setText] = useState("");
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
@@ -54,13 +50,11 @@ export function Composer({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
-      bedrockEnabled,
-      geminiEnabled,
-      opencodeEnabled,
+      bedrockEnabled,      opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [groqEnabled, bedrockEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
+    [groqEnabled, bedrockEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
   );
 
   const availableFamilyIds = useMemo(() => {
@@ -78,14 +72,11 @@ export function Composer({ convId }: { convId: string }) {
     const customRoutes = getCustomProviderModelInfos(customProviders);
     const opencodeRoutes = opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : [];
     const groqExtraRoutes = groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : [];
-    const geminiExtraRoutes = geminiEnabled ? getGeminiExtraModelInfos(geminiExtraModels) : [];
 
     const families = buildModelFamilies([
       ...baseRoutes,
       ...opencodeRoutes,
-      ...groqExtraRoutes,
-      ...geminiExtraRoutes,
-      ...hostedOllamaRoutes,
+      ...groqExtraRoutes,      ...hostedOllamaRoutes,
       ...localRoutes,
       ...customRoutes,
     ]);
@@ -100,10 +91,7 @@ export function Composer({ convId }: { convId: string }) {
     opencodeEnabled,
     opencodeModels,
     groqEnabled,
-    groqExtraModels,
-    geminiEnabled,
-    geminiExtraModels,
-    ollamaCloudModels,
+    groqExtraModels,    ollamaCloudModels,
   ]);
 
   const visibleSelectedModels = conv

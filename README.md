@@ -13,15 +13,17 @@
 
 | Model | Provider | API | Context | Capability |
 |---|---|---|---|---|
+| GLM 4.7 Flash | Z.ai | Bedrock | 200K | Fast all-purpose chat |
+| Kimi K2.5 | Moonshot | Bedrock | 256K | Long-context reasoning |
+| DeepSeek V3.2 | DeepSeek | Bedrock | 164K | Code and analysis |
+| Ministral 3 14B | Mistral | Bedrock | 128K | Fast general answers |
 | GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
 | Qwen 3.8 27B | Qwen / Alibaba | Groq | 128K | All-purpose chat, code, reasoning |
 | GPT-OSS 20B | OpenAI (open-weight) | Groq | 128K | Ultra-fast responses |
-| Gemini 3.5 Flash | Google | Gemini API | 1M | Large context, vision |
-| Gemma 4 31B | Google | Gemini API | 256K | Open-weight general assistant |
 
-Every core model is **free** on its provider's tier with your own key. Ollama
-Cloud presets (Gemma 4 31B, Nemotron 3 Super, GPT-OSS 120B) need a free
-[ollama.com](https://ollama.com) account.
+Ollama Cloud presets (Gemma 4 31B, Nemotron 3 Super, GPT-OSS 120B) need a free
+[ollama.com](https://ollama.com) account. OpenCode Zen free models are
+available as backups.
 
 The catalog keeps **one model per family per provider** — where a provider ships
 several sizes or generations of the same model, only the strongest usable one is
@@ -32,8 +34,7 @@ with a live request.
 
 Go to **Settings → Browse models** to import additional models from:
 - **Groq** — dozens of extra hosted models
-- **Gemini** — full Google model catalog
-- **OpenCode Zen** — Claude, GPT-5, Gemini 3.x and more (paid)
+- **OpenCode Zen** — Claude, GPT-5, and more (paid)
 - **Custom** — any OpenAI-compatible endpoint (local or remote)
 
 ---
@@ -69,6 +70,10 @@ Consensus and council never guess. Every run is planned by
 > OpenCode Zen free models are deliberately **backup-only**. The free tier has
 > an account-wide usage cap that returns HTTP 429 under sustained load, so they
 > are a safety net rather than a dependable primary.
+
+Provider priority is **Bedrock → Groq → Ollama → OpenCode → Local**. Bedrock
+leads because it measured fastest to first streamed token (0.4-0.6s) with the
+most long-context headroom.
 
 ### When a model fails
 

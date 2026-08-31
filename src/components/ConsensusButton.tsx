@@ -58,8 +58,6 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const apiKey = useSettings((s) => s.apiKey);
   const groqEnabled = useSettings((s) => s.groqEnabled);
   const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
-  const geminiApiKey = useSettings((s) => s.geminiApiKey);
-  const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeApiKey = useSettings((s) => s.opencodeApiKey);
   const bedrockApiKey = useSettings((s) => s.bedrockApiKey);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
@@ -74,21 +72,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
-      bedrockEnabled,
-      geminiEnabled,
-      opencodeEnabled,
+      bedrockEnabled,      opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    [cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
   const accessSettings = useMemo(
     () => ({
       apiKey,
-      groqEnabled,
-      geminiApiKey,
-      geminiEnabled,
-      opencodeApiKey,
+      groqEnabled,      opencodeApiKey,
       opencodeEnabled,
       bedrockApiKey,
       bedrockEnabled,
@@ -96,7 +89,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [apiKey, bedrockApiKey, bedrockEnabled, cloudOllamaEnabled, geminiApiKey, geminiEnabled, groqEnabled, localEnabled, ollamaApiKey, opencodeApiKey, opencodeEnabled]
+    [apiKey, bedrockApiKey, bedrockEnabled, cloudOllamaEnabled, groqEnabled, localEnabled, ollamaApiKey, opencodeApiKey, opencodeEnabled]
   );
 
   const settingsSnapshot = useSettings((s) => s);
@@ -311,9 +304,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
           // Full fallback chain — server tries each silently on failure or
           // context overflow, so the user always gets a result.
           fallbackModels: mode === "council" ? councilFallbackModels : autoFallbackModels,
-          apiKey,
-          geminiApiKey,
-          opencodeApiKey,
+          apiKey,          opencodeApiKey,
           bedrockApiKey,
           ollamaBaseUrl,
           ollamaApiKey,

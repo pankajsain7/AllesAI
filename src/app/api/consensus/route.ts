@@ -44,7 +44,6 @@ const COUNCIL_SYNTHESIS_RESPONSE_BUDGET = 10_000;
 const COUNCIL_SYNTHESIS_NOTE_BUDGET = 1_600;
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
 // Project-scoped "mantle" endpoint. Note .api.aws, and the plain /v1 path —
 // the /openai/v1 variant exists but rejects these model ids.
@@ -80,7 +79,6 @@ type RequestBody = {
   judgeFallbackModels?: string[];
   judgeModels?: string[];
   apiKey?: string;
-  geminiApiKey?: string;
   opencodeApiKey?: string;
   bedrockApiKey?: string;
   ollamaBaseUrl?: string;
@@ -105,7 +103,7 @@ type JudgeResult = {
 };
 
 
-type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq" | "bedrock" | "custom";
+type ProviderKey = "ollama" | "ollama-cloud" | "opencode" | "groq" | "bedrock" | "custom";
 type QualityMode = "quick" | "deep";
 type CouncilRoundName = "opening" | "critique" | "convergence";
 type CouncilRound = {
@@ -131,7 +129,7 @@ class UpstreamError extends Error {
   }
 }
 
-const MODEL_NAME_RULES = `Refer to sources only by their short model names (e.g. Gemini 2.5, Gemma 4, Llama 4, Cogito, Nemotron, GPT).
+const MODEL_NAME_RULES = `Refer to sources only by their short model names (e.g. GLM, Kimi, DeepSeek, Ministral, Qwen, Nemotron, GPT).
 Never write "Model 1", "Model 2", "the first model", or raw model IDs. Never invent names that were not provided.`;
 
 const QUALITY_RUBRIC = `Judge every candidate answer against this rubric before you decide:
@@ -289,7 +287,6 @@ function providerFor(modelId: string): ProviderKey {
   if (modelId.startsWith(OPENCODE_PREFIX)) return "opencode";
   if (modelId.startsWith(BEDROCK_PREFIX)) return "bedrock";
   if (modelId.startsWith(CUSTOM_PREFIX)) return "custom";
-  if (modelId.startsWith("gemini")) return "gemini";
   return "groq";
 }
 
@@ -303,7 +300,6 @@ function modelNameForProvider(modelId: string): string {
 
 function keyFor(body: RequestBody, modelId: string): string | undefined {
   const provider = providerFor(modelId);
-  if (provider === "gemini") return body.geminiApiKey || process.env.GEMINI_API_KEY;
   if (provider === "groq") return body.apiKey || process.env.GROQ_API_KEY;
   if (provider === "bedrock") return body.bedrockApiKey || process.env.AWS_Bedrock_API_Key || process.env.AWS_BEDROCK_API_KEY;
   if (provider === "opencode") return body.opencodeApiKey || process.env.OpenCode_API_Key || process.env.OPENCODE_API_KEY;
@@ -342,28 +338,6 @@ function formatResponseBlock(prompt: string, responses: ResponseEntry[], webSear
   return parts.filter(Boolean).join("\n");
 }
 
-function toGeminiBody(messages: ChatMessage[]) {
-  const systemParts: Array<{ text: string }> = [];
-  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
-
-  for (const message of messages) {
-    if (message.role === "system") {
-      if (message.content) systemParts.push({ text: message.content });
-    } else {
-      contents.push({
-        role: message.role === "assistant" ? "model" : "user",
-        parts: [{ text: message.content }],
-      });
-    }
-  }
-
-  return {
-    ...(systemParts.length > 0 ? { system_instruction: { parts: systemParts } } : {}),
-    contents,
-    generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
-  };
-}
-
 async function readError(upstream: Response, fallback: string): Promise<string> {
   const raw = await upstream.text().catch(() => fallback);
   if (!raw) return fallback;
@@ -389,20 +363,6 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
       `${getModelAlias(modelId)} is a custom provider model, which cannot be used for consensus or council.`,
       400
     );
-  }
-
-  if (provider === "gemini") {
-    const key = keyFor(body, modelId);
-    if (!key) throw new UpstreamError("No API key. Add your Gemini API key in Settings.", 401);
-    const endpoint = stream ? "streamGenerateContent?alt=sse" : "generateContent";
-    return fetch(`${GEMINI_BASE}/${model}:${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify(toGeminiBody(messages)),
-      ...(signal ? { signal } : {}),
-    }).catch((err: unknown) => {
-      throw new UpstreamError(`Gemini API is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
-    });
   }
 
   if (provider === "ollama" || provider === "ollama-cloud") {
@@ -492,12 +452,6 @@ async function generateText(body: RequestBody, modelId: string, messages: ChatMe
 
   const provider = providerFor(modelId);
   const json = await upstream.json().catch(() => ({}));
-  if (provider === "gemini") {
-    return (json?.candidates?.[0]?.content?.parts ?? [])
-      .map((part: { text?: string }) => part.text ?? "")
-      .join("")
-      .trim();
-  }
   if (provider === "ollama" || provider === "ollama-cloud") {
     return String(json?.message?.content ?? "").trim();
   }
@@ -625,16 +579,11 @@ async function pipeStreamingText(
         if (!payload || payload === "[DONE]") continue;
 
         const json = JSON.parse(payload);
-        if (opened.provider === "gemini") {
-          const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) emitDelta(text);
-        } else {
-          const delta = json?.choices?.[0]?.delta?.content;
-          if (delta) emitDelta(delta);
-          if (json?.usage) send({ type: "usage", usage: json.usage });
-          const finish = json?.choices?.[0]?.finish_reason;
-          if (finish) send({ type: "finish", reason: finish });
-        }
+        const delta = json?.choices?.[0]?.delta?.content;
+        if (delta) emitDelta(delta);
+        if (json?.usage) send({ type: "usage", usage: json.usage });
+        const finish = json?.choices?.[0]?.finish_reason;
+        if (finish) send({ type: "finish", reason: finish });
       } catch {
         // ignore malformed stream lines
       }

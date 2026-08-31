@@ -129,37 +129,6 @@ export const MODEL_CATALOG: ModelInfo[] = [
     bestFor: "Ultra-fast responses, mobile",
     paramSize: "20B",
   },
-  {
-    // Preferred over the newer gemini-3.6-flash: identical 1M context and 65k
-    // output, but 2-4x faster to first token when streaming, which is what
-    // chat and consensus synthesis actually do.
-    id: "gemini-3.5-flash",
-    label: "Gemini 3.5 Flash",
-    shortLabel: "Gemini 3.5 Flash",
-    provider: "gemini",
-    apiProvider: "gemini",
-    familyId: "gemini-3.5-flash",
-    free: true,
-    context: 1048576,
-    category: "General",
-    vision: true,
-    routeHint: "Google Gemini API",
-    bestFor: "Fast, large-context general model",
-  },
-  {
-    id: "gemma-4-31b-it",
-    label: "Gemma 4 31B",
-    shortLabel: "Gemma 4 31B",
-    provider: "gemini",
-    apiProvider: "gemini",
-    familyId: "gemma-4-31b",
-    free: true,
-    context: 262144,
-    category: "General",
-    routeHint: "Google Gemini API",
-    bestFor: "Open-weight general assistant",
-    paramSize: "31B",
-  },
 ];
 
 // OpenCode Zen is an AI gateway offering dozens of models (most paid). Rather
@@ -452,38 +421,6 @@ export function getGroqExtraModelInfos(modelNames: string[]): ModelInfo[] {
   return uniqueActiveModelNames(modelNames).map(getGroqExtraModelInfo);
 }
 
-// Extra (non-core) Gemini models a user imports via "Browse models". Gemini
-// model ids are already bare (e.g. "gemini-2.5-pro") and route correctly
-// through the existing `id.startsWith("gemini")` checks with no prefix.
-export function getGeminiExtraModelInfo(modelName: string): ModelInfo {
-  const label = humanizeModelSlug(modelName);
-  return {
-    id: modelName,
-    label,
-    shortLabel: label,
-    provider: "gemini",
-    apiProvider: "gemini",
-    familyId: `gemini-extra-${modelName}`,
-    free: false,
-    context: 0,
-    category: "Gemini",
-    routeHint: "Google Gemini API",
-    bestFor: "Imported Gemini model",
-  };
-}
-
-export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
-  return uniqueActiveModelNames(modelNames).map(getGeminiExtraModelInfo);
-}
-
-// Imported by default: verified-working free Gemini models beyond the core
-// catalog entries, so a Gemini-only user still has a consensus backup bench.
-// One model per family generation — older same-family variants are omitted.
-export const DEFAULT_GEMINI_EXTRA_MODEL_IDS = [
-  "gemini-3.6-flash",
-  "gemini-3.5-flash-lite",
-];
-
 
 // Pre-defined hosted Ollama models (ollama.com API). All verified on the free
 // tier. Only the strongest member of each family is listed — smaller or slower
@@ -647,12 +584,12 @@ export function getModel(id: string): ModelInfo | undefined {
     return getOpenCodeModelInfo(getOpenCodeModelName(id));
   }
 
-  if (id.startsWith("groq/")) {
-    return getGroqExtraModelInfo(id.slice("groq/".length));
+  if (isBedrockModelId(id)) {
+    return getBedrockModelInfo(getBedrockModelName(id));
   }
 
-  if (id.startsWith("gemini")) {
-    return getGeminiExtraModelInfo(id);
+  if (id.startsWith("groq/")) {
+    return getGroqExtraModelInfo(id.slice("groq/".length));
   }
 
   if (isCustomModelId(id)) {
@@ -746,15 +683,15 @@ export function getProviderGroups(): ProviderGroup[] {
 // Default selection: broad, non-duplicated hosted API coverage. Local and
 // Ollama API routes are opt-in.
 export const DEFAULT_SELECTED_MODELS = [
+  "bedrock/zai.glm-4.7-flash",
   "openai/gpt-oss-120b",
   "qwen/qwen3.8-27b",
-  "openai/gpt-oss-20b",
-  "gemini-3.5-flash",
+  "bedrock/deepseek.v3.2",
 ];
 
 // Preferred synthesis model. The UI falls through to the first eligible route
 // when this provider is unavailable.
-export const CONSENSUS_MODEL = "gemini-3.5-flash";
+export const CONSENSUS_MODEL = "bedrock/zai.glm-4.7-flash";
 
 // ollama.com cloud models aren't per-model free/paid — every plan (including
 // Free) can call every hosted model, but usage is metered against a plan's
