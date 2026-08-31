@@ -112,23 +112,6 @@ export const MODEL_CATALOG: ModelInfo[] = [
     bestFor: "All-purpose chat, code, reasoning",
     paramSize: "27B",
   },
-  {
-    // Groq retired llama-3.1-8b-instant (404 model_not_found); GPT-OSS 20B is
-    // the closest live fast/small replacement on Groq.
-    id: "openai/gpt-oss-20b",
-    label: "GPT-OSS 20B",
-    shortLabel: "GPT-OSS 20B",
-    provider: "openai",
-    apiProvider: "groq",
-    familyId: "gpt-oss-20b",
-    free: true,
-    context: 131072,
-    category: "General",
-    thinking: true,
-    routeHint: "Groq hosted OpenAI open-weight model",
-    bestFor: "Ultra-fast responses, mobile",
-    paramSize: "20B",
-  },
 ];
 
 // OpenCode Zen is an AI gateway offering dozens of models (most paid). Rather

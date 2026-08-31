@@ -65,7 +65,6 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   // --- Groq (fastest inference)
   "openai/gpt-oss-120b": { tier: "primary", latencyS: 0.3 },
   "qwen/qwen3.8-27b": { tier: "primary", latencyS: 0.2 },
-  "openai/gpt-oss-20b": { tier: "backup", latencyS: 0.2 },
 
   // --- Ollama Cloud (free tier verified; paid-only models deliberately absent)
   "ollama-cloud/gemma4:31b": { tier: "backup", latencyS: 2.9 },

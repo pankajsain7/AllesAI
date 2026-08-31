@@ -95,7 +95,7 @@ function shorten(value, max = 120) {
 // Every route the app ships by default. Keep in sync with src/lib/models.ts
 // and the CONSENSUS_MODEL_ROSTER in src/lib/model-rules.ts.
 const TARGETS = [
-  ...["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"].map((m) => ({
+  ...["openai/gpt-oss-120b", "qwen/qwen3.8-27b"].map((m) => ({
     provider: "groq",
     model: m,
   })),

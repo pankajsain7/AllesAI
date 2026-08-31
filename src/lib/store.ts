@@ -577,7 +577,10 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
   // Deduped: same family and parameter size as qwen3.8-27b, one generation older.
   "qwen/qwen3.6-27b": "qwen/qwen3.8-27b",
-  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+  "llama-3.1-8b-instant": "openai/gpt-oss-120b",
+  // Deduped: 120B already covers this via Groq and Ollama Cloud, so a smaller
+  // same-family Groq variant added nothing.
+  "openai/gpt-oss-20b": "openai/gpt-oss-120b",
 };
 
 function findLegacyModelIds(modelId: string): string[] {

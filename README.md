@@ -19,7 +19,6 @@
 | Ministral 3 14B | Mistral | Bedrock | 128K | Fast general answers |
 | GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
 | Qwen 3.8 27B | Qwen / Alibaba | Groq | 128K | All-purpose chat, code, reasoning |
-| GPT-OSS 20B | OpenAI (open-weight) | Groq | 128K | Ultra-fast responses |
 
 Ollama Cloud presets (Gemma 4 31B, Nemotron 3 Super, GPT-OSS 120B) need a free
 [ollama.com](https://ollama.com) account. OpenCode Zen free models are
