@@ -112,21 +112,6 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "27B",
   },
   {
-    id: "qwen/qwen3.6-27b",
-    label: "Qwen 3.6 27B",
-    shortLabel: "Qwen 3.6 27B",
-    provider: "qwen",
-    apiProvider: "groq",
-    familyId: "qwen3.6-27b",
-    free: true,
-    context: 131072,
-    category: "General",
-    thinking: true,
-    routeHint: "Groq hosted Qwen model",
-    bestFor: "Fast reasoning, analysis",
-    paramSize: "27B",
-  },
-  {
     // Groq retired llama-3.1-8b-instant (404 model_not_found); GPT-OSS 20B is
     // the closest live fast/small replacement on Groq.
     id: "openai/gpt-oss-20b",
@@ -144,18 +129,32 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "20B",
   },
   {
-    id: "gemini-3.5-flash",
-    label: "Gemini 3.5 Flash",
-    shortLabel: "Gemini 3.5 Flash",
+    id: "gemini-3.6-flash",
+    label: "Gemini 3.6 Flash",
+    shortLabel: "Gemini 3.6 Flash",
     provider: "gemini",
     apiProvider: "gemini",
-    familyId: "gemini-3.5-flash",
+    familyId: "gemini-3.6-flash",
     free: true,
     context: 1048576,
     category: "General",
     vision: true,
     routeHint: "Google Gemini API",
     bestFor: "Fast, latest generation model",
+  },
+  {
+    id: "gemma-4-31b-it",
+    label: "Gemma 4 31B",
+    shortLabel: "Gemma 4 31B",
+    provider: "gemini",
+    apiProvider: "gemini",
+    familyId: "gemma-4-31b",
+    free: true,
+    context: 262144,
+    category: "General",
+    routeHint: "Google Gemini API",
+    bestFor: "Open-weight general assistant",
+    paramSize: "31B",
   },
 ];
 
@@ -337,17 +336,18 @@ export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
   return uniqueActiveModelNames(modelNames).map(getGeminiExtraModelInfo);
 }
 
-// Imported by default: verified-working Gemini models beyond the core catalog
-// entry, so a user with only a Gemini key still has a consensus backup bench.
+// Imported by default: verified-working free Gemini models beyond the core
+// catalog entries, so a Gemini-only user still has a consensus backup bench.
+// One model per family generation — older same-family variants are omitted.
 export const DEFAULT_GEMINI_EXTRA_MODEL_IDS = [
-  "gemini-3.6-flash",
+  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
 ];
 
 
-// Pre-defined hosted Ollama models (ollama.com API). They are folded into the
-// same family list as other routes when they refer to the same model.
+// Pre-defined hosted Ollama models (ollama.com API). All verified on the free
+// tier. Only the strongest member of each family is listed — smaller or slower
+// same-family variants add clutter without adding capability.
 export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
   {
     name: "gemma4:31b",
@@ -384,30 +384,6 @@ export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
     bestFor: "Reasoning, agents",
     context: 131072,
     category: "Reasoning",
-    thinking: true,
-  },
-  {
-    name: "gpt-oss:20b",
-    label: "GPT-OSS 20B (Ollama)",
-    shortLabel: "GPT-OSS 20B",
-    provider: "openai",
-    familyId: "gpt-oss-20b",
-    paramSize: "20B",
-    bestFor: "Fast general answers",
-    context: 131072,
-    category: "General",
-    thinking: true,
-  },
-  {
-    name: "nemotron-3-nano:30b",
-    label: "Nemotron 3 Nano 30B",
-    shortLabel: "Nemotron 3 Nano",
-    provider: "nvidia",
-    familyId: "nemotron-3-nano-30b",
-    paramSize: "30B",
-    bestFor: "Ultra-fast answers",
-    context: 131072,
-    category: "General",
     thinking: true,
   },
 ];

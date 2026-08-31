@@ -36,32 +36,28 @@ type RosterEntry = {
 };
 
 export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
-  // --- Gemini (largest context windows; best at long multi-model transcripts)
-  "gemini-3.5-flash": { tier: "primary", latencyS: 2 },
-  "gemini-3.6-flash": { tier: "primary", latencyS: 2 },
-  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 1 },
-  "gemini-3.1-flash-lite": { tier: "backup", latencyS: 1 },
+  // --- Gemini (1M context; best at long multi-model transcripts)
+  "gemini-3.6-flash": { tier: "primary", latencyS: 1.4 },
+  "gemini-3.5-flash": { tier: "primary", latencyS: 0.9 },
+  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.7 },
+  "gemma-4-31b-it": { tier: "backup", latencyS: 1.8 },
 
   // --- Groq (fastest inference)
-  "openai/gpt-oss-120b": { tier: "primary", latencyS: 2 },
-  "qwen/qwen3.8-27b": { tier: "primary", latencyS: 2 },
-  "qwen/qwen3.6-27b": { tier: "primary", latencyS: 3 },
-  "openai/gpt-oss-20b": { tier: "backup", latencyS: 1 },
+  "openai/gpt-oss-120b": { tier: "primary", latencyS: 0.3 },
+  "qwen/qwen3.8-27b": { tier: "primary", latencyS: 0.2 },
+  "openai/gpt-oss-20b": { tier: "backup", latencyS: 0.2 },
 
   // --- Ollama Cloud (free tier verified; paid-only models deliberately absent)
-  "ollama-cloud/gemma4:31b": { tier: "primary", latencyS: 3 },
-  "ollama-cloud/nemotron-3-super": { tier: "primary", latencyS: 4 },
-  "ollama-cloud/gpt-oss:120b": { tier: "backup", latencyS: 3 },
-  "ollama-cloud/gpt-oss:20b": { tier: "backup", latencyS: 2 },
-  "ollama-cloud/nemotron-3-nano:30b": { tier: "backup", latencyS: 1 },
-  "ollama-cloud/nemotron-3-ultra": { tier: "backup", latencyS: 40 },
+  "ollama-cloud/gemma4:31b": { tier: "primary", latencyS: 2.9 },
+  "ollama-cloud/nemotron-3-super": { tier: "primary", latencyS: 2.7 },
+  "ollama-cloud/gpt-oss:120b": { tier: "backup", latencyS: 1.6 },
 
   // --- OpenCode Zen (free tier; the safety net when no other key is present)
-  "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2 },
-  "opencode/laguna-s-2.1-free": { tier: "backup", latencyS: 5 },
-  "opencode/big-pickle": { tier: "backup", latencyS: 5 },
+  "opencode/laguna-s-2.1-free": { tier: "backup", latencyS: 0.8 },
+  "opencode/big-pickle": { tier: "backup", latencyS: 0.9 },
+  "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2.2 },
   "opencode/mimo-v2.5-free": { tier: "backup", latencyS: 6 },
-  "opencode/nemotron-3-ultra-free": { tier: "backup", latencyS: 18 },
+  "opencode/nemotron-3-ultra-free": { tier: "backup", latencyS: 9.9 },
 };
 
 // A model is too slow to be an auto-selected primary above this latency.

@@ -569,6 +569,8 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "gemini-2.5-flash-lite": "gemini-3.5-flash",
   // Groq retired both Llama chat models (404 model_not_found as of 2026-08-28).
   "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
+  // Deduped: same family and parameter size as qwen3.8-27b, one generation older.
+  "qwen/qwen3.6-27b": "qwen/qwen3.8-27b",
   "llama-3.1-8b-instant": "openai/gpt-oss-20b",
 };
 

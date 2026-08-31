@@ -119,11 +119,11 @@ function shorten(value, max = 120) {
 // Every route the app ships by default. Keep in sync with src/lib/models.ts
 // and the CONSENSUS_MODEL_ROSTER in src/lib/model-rules.ts.
 const TARGETS = [
-  ...["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "qwen/qwen3.6-27b"].map((m) => ({
+  ...["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"].map((m) => ({
     provider: "groq",
     model: m,
   })),
-  ...["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"].map((m) => ({
+  ...["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-31b-it"].map((m) => ({
     provider: "gemini",
     model: m,
   })),
@@ -134,7 +134,7 @@ const TARGETS = [
     "laguna-s-2.1-free",
     "nemotron-3-ultra-free",
   ].map((m) => ({ provider: "opencode", model: m })),
-  ...["gemma4:31b", "nemotron-3-super", "gpt-oss:120b", "gpt-oss:20b", "nemotron-3-nano:30b"].map((m) => ({
+  ...["gemma4:31b", "nemotron-3-super", "gpt-oss:120b"].map((m) => ({
     provider: "ollama-cloud",
     model: m,
   })),
