@@ -592,7 +592,8 @@ export function normalizeModelId(modelId: string): string | null {
   if (isCustomModelId(normalized)) return normalized;
   if (isOllamaModelId(normalized)) return normalized;
   if (isOpenCodeModelId(normalized)) return normalized;
-  if (normalized.startsWith("groq/")) return normalized;  if (isCloudOllamaModelId(normalized)) return normalized;
+  if (normalized.startsWith("groq/")) return normalized;
+  if (isCloudOllamaModelId(normalized)) return normalized;
   return VALID_MODEL_IDS.has(normalized) ? normalized : null;
 }
 
@@ -775,11 +776,12 @@ export function hasConversationSentMessages(conversation: Conversation): boolean
 }
 
 function filterPersistableConversations(
-  conversations: Record<string, Conversation>
+  conversations: Record<string, Conversation>,
+  keepId?: string | null
 ): Record<string, Conversation> {
   return Object.fromEntries(
-    Object.entries(conversations).filter(([, conversation]) =>
-      hasConversationSentMessages(conversation)
+    Object.entries(conversations).filter(
+      ([id, conversation]) => id === keepId || hasConversationSentMessages(conversation)
     )
   );
 }
@@ -789,7 +791,12 @@ function pickActiveConversationId(
   conversations: Record<string, Conversation>
 ): string | null {
   if (preferredId && conversations[preferredId]) return preferredId;
-  return Object.keys(conversations)[0] ?? null;
+  // Most recently updated, not insertion order — otherwise a reload could land
+  // on an arbitrary old chat.
+  const [mostRecent] = Object.entries(conversations).sort(
+    ([, a], [, b]) => b.updatedAt - a.updatedAt
+  );
+  return mostRecent?.[0] ?? null;
 }
 
 export const useChat = create<ChatState>()(
@@ -802,12 +809,13 @@ export const useChat = create<ChatState>()(
         set((s) => {
           const prunedConversations = pruneConversationsByRecency(
             filterPersistableConversations(
-            Object.fromEntries(
-              Object.entries(s.conversations).map(([id, conversation]) => [
-                id,
-                pruneConversationPayload(conversation),
-              ])
-            )
+              Object.fromEntries(
+                Object.entries(s.conversations).map(([id, conversation]) => [
+                  id,
+                  pruneConversationPayload(conversation),
+                ])
+              ),
+              s.activeId
             )
           );
           return {
@@ -1384,6 +1392,8 @@ export const useChat = create<ChatState>()(
       name: "alles-ai-chats",
       version: 21,
       partialize: (state) => {
+        // Keep the active conversation even when it has no messages yet, so a
+        // reload returns to the chat the user is actually looking at.
         const conversations = pruneConversationsByRecency(
           filterPersistableConversations(
             Object.fromEntries(
@@ -1391,7 +1401,8 @@ export const useChat = create<ChatState>()(
                 id,
                 pruneConversationPayload(conversation),
               ])
-            )
+            ),
+            state.activeId
           )
         );
         return {
@@ -1409,7 +1420,7 @@ export const useChat = create<ChatState>()(
           ])
         );
         const conversations = pruneConversationsByRecency(
-          filterPersistableConversations(sanitizedConversations)
+          filterPersistableConversations(sanitizedConversations, state?.activeId ?? null)
         );
 
         const lastUsedModels = dedupeModelIdsByFamily(
@@ -1439,7 +1450,7 @@ export const useChat = create<ChatState>()(
           ])
         );
         const conversations = pruneConversationsByRecency(
-          filterPersistableConversations(sanitizedConvs)
+          filterPersistableConversations(sanitizedConvs, state.activeId)
         );
         const sanitizedLast = dedupeModelIdsByFamily(
           Array.from(

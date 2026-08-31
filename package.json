@@ -9,6 +9,7 @@
     "lint": "eslint",
     "check:models": "node scripts/check-models.mjs",
     "check:ssrf": "node --import tsx scripts/check-ssrf.mjs",
+    "check:persistence": "node --import tsx scripts/check-persistence.mjs",
     "check:consensus": "node --import tsx scripts/check-consensus.mjs",
     "check:consensus:live": "node --import tsx scripts/check-consensus.mjs --live"
   },
