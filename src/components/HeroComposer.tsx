@@ -51,14 +51,16 @@ export function HeroComposer({ convId }: { convId: string }) {
   const enhanceCtrlRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  if (!conv) return null;
-  const enabledSettings: ProviderToggleSettings = {
-    groqEnabled,
-    geminiEnabled,
-    opencodeEnabled,
-    cloudOllamaEnabled,
-    localEnabled,
-  };
+  const enabledSettings = useMemo<ProviderToggleSettings>(
+    () => ({
+      groqEnabled,
+      geminiEnabled,
+      opencodeEnabled,
+      cloudOllamaEnabled,
+      localEnabled,
+    }),
+    [groqEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
+  );
 
   const availableFamilyIds = useMemo(() => {
     const baseRoutes = MODEL_CATALOG.filter((route) =>
@@ -102,6 +104,10 @@ export function HeroComposer({ convId }: { convId: string }) {
     geminiExtraModels,
     ollamaCloudModels,
   ]);
+
+  // Every hook must run before this point, otherwise deleting a conversation
+  // changes the hook order and React tears the tree down.
+  if (!conv) return null;
 
   const visibleSelectedModels = dedupeModelIdsByFamily(
     filterEnabledModelIds(conv.selectedModels, enabledSettings).filter((id) =>

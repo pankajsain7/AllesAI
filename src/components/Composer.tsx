@@ -50,13 +50,16 @@ export function Composer({ convId }: { convId: string }) {
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const enhanceCtrlRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const enabledSettings: ProviderToggleSettings = {
-    groqEnabled,
-    geminiEnabled,
-    opencodeEnabled,
-    cloudOllamaEnabled,
-    localEnabled,
-  };
+  const enabledSettings = useMemo<ProviderToggleSettings>(
+    () => ({
+      groqEnabled,
+      geminiEnabled,
+      opencodeEnabled,
+      cloudOllamaEnabled,
+      localEnabled,
+    }),
+    [groqEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
+  );
 
   const availableFamilyIds = useMemo(() => {
     const baseRoutes = MODEL_CATALOG.filter((route) =>

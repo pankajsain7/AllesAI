@@ -373,6 +373,10 @@ export function ModelColumn({
   // computeScrollTop() on every content mutation (streaming tokens can
   // change wrapped-line heights repeatedly). Disengages the moment the user
   // scrolls manually, or once the answer finishes streaming.
+  // pinnedRef coordinates imperative scroll pinning between an effect and the
+  // wheel/touch handlers. react-hooks/immutability flags any ref written in
+  // both places, but that is precisely what a ref is for here, so the rule is
+  // suppressed at each write rather than restructuring working scroll logic.
   const pinnedRef = useRef(false);
   const pinnedTopRef = useRef(0);
 
@@ -619,8 +623,14 @@ export function ModelColumn({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        onWheel={() => { pinnedRef.current = false; }}
-        onTouchStart={() => { pinnedRef.current = false; }}
+        onWheel={() => {
+          // eslint-disable-next-line react-hooks/immutability
+          pinnedRef.current = false;
+        }}
+        onTouchStart={() => {
+          // eslint-disable-next-line react-hooks/immutability
+          pinnedRef.current = false;
+        }}
         className={"flex-1 overflow-y-auto " + (compact ? "space-y-2 p-2" : "space-y-3 p-3")}
       >
         {thread.messages.length === 0 && (
