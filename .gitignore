@@ -46,3 +46,6 @@ next-env.d.ts
 # one-off audit output
 /scripts/audit-results.json
 
+
+# bedrock probe output
+/scripts/bedrock-*.json

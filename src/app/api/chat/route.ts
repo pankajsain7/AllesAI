@@ -550,6 +550,11 @@ export async function POST(req: NextRequest) {
 
     let upstream: Response | null = null;
     let lastError: string | null = null;
+    // The first entry is the only real endpoint; the rest are legacy mirrors
+    // that answer with a fake 200. Keep the primary's error separately so a
+    // genuine 429/503 from it is reported instead of a mirror's noise.
+    let primaryError: string | null = null;
+    let primaryStatus = 502;
     for (const url of OPENCODE_URLS) {
       try {
         // Only include reasoning_effort for models that support it
@@ -579,6 +584,10 @@ export async function POST(req: NextRequest) {
         // silently produces a blank chat response.
         if (res.status >= 500) {
           lastError = `HTTP ${res.status} from ${url}`;
+          if (url === OPENCODE_URLS[0]) {
+            primaryError = await res.text().catch(() => "") || `OpenCode Zen returned HTTP ${res.status}.`;
+            primaryStatus = res.status;
+          }
           continue;
         }
         if (res.status === 200 && !isLikelyStreamResponse(res)) {
@@ -594,6 +603,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (!upstream) {
+      // Report what the real endpoint said, not whichever legacy mirror was
+      // tried last — "unreachable" hid genuine rate-limit and outage errors.
+      if (primaryError) {
+        return new Response(primaryError, { status: primaryStatus });
+      }
       return new Response(
         `OpenCode Zen is unreachable. ${lastError ?? "No healthy endpoint responded."}`,
         { status: 502 }
