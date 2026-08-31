@@ -6,6 +6,8 @@ import {
   CONSENSUS_MODEL,
   DEFAULT_GEMINI_EXTRA_MODEL_IDS,
   DEFAULT_OPENCODE_MODEL_IDS,
+  DEFAULT_BEDROCK_MODEL_IDS,
+  getBedrockModelInfos,
   DEFAULT_SELECTED_MODELS,
   MODEL_CATALOG,
   dedupeModelIdsByFamily,
@@ -188,6 +190,12 @@ export type SettingsState = {
   setOpencodeEnabled: (v: boolean) => void;
   opencodeModels: string[];
   setOpencodeModels: (models: string[]) => void;
+  bedrockApiKey: string;
+  setBedrockApiKey: (k: string) => void;
+  bedrockEnabled: boolean;
+  setBedrockEnabled: (v: boolean) => void;
+  bedrockModels: string[];
+  setBedrockModels: (models: string[]) => void;
   groqExtraModels: string[];
   setGroqExtraModels: (models: string[]) => void;
   geminiExtraModels: string[];
@@ -226,7 +234,7 @@ export type SettingsState = {
 
 export type ProviderToggleSettings = Pick<
   SettingsState,
-  "groqEnabled" | "geminiEnabled" | "opencodeEnabled" | "cloudOllamaEnabled" | "localEnabled"
+  "groqEnabled" | "geminiEnabled" | "opencodeEnabled" | "cloudOllamaEnabled" | "localEnabled" | "bedrockEnabled"
 >;
 
 export const useSettings = create<SettingsState>()(
@@ -246,6 +254,12 @@ export const useSettings = create<SettingsState>()(
       setOpencodeEnabled: (v) => set({ opencodeEnabled: v }),
       opencodeModels: DEFAULT_OPENCODE_MODEL_IDS,
       setOpencodeModels: (models) => set({ opencodeModels: sanitizeModelNames(models) }),
+      bedrockApiKey: "",
+      setBedrockApiKey: (k) => set({ bedrockApiKey: k }),
+      bedrockEnabled: true,
+      setBedrockEnabled: (v) => set({ bedrockEnabled: v }),
+      bedrockModels: DEFAULT_BEDROCK_MODEL_IDS,
+      setBedrockModels: (models) => set({ bedrockModels: sanitizeModelNames(models) }),
       groqExtraModels: [],
       setGroqExtraModels: (models) => set({ groqExtraModels: sanitizeModelNames(models) }),
       geminiExtraModels: DEFAULT_GEMINI_EXTRA_MODEL_IDS,
@@ -290,7 +304,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 10,
+      version: 11,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -301,6 +315,9 @@ export const useSettings = create<SettingsState>()(
           opencodeApiKey: state.opencodeApiKey ?? "",
           opencodeEnabled: state.opencodeEnabled ?? false,
           opencodeModels: sanitizeModelNames(state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS),
+          bedrockApiKey: state.bedrockApiKey ?? "",
+          bedrockEnabled: state.bedrockEnabled ?? true,
+          bedrockModels: sanitizeModelNames(state.bedrockModels ?? DEFAULT_BEDROCK_MODEL_IDS),
           groqExtraModels: sanitizeModelNames(state.groqExtraModels ?? []),
           geminiExtraModels: sanitizeModelNames(state.geminiExtraModels ?? []),
           systemPrompt: state.systemPrompt ?? "You are a helpful, concise assistant.",
@@ -340,6 +357,9 @@ export const useSettings = create<SettingsState>()(
         cloudOllamaEnabled: state.cloudOllamaEnabled,
         ollamaCloudBaseUrl: state.ollamaCloudBaseUrl,
         ollamaCloudModels: state.ollamaCloudModels,
+        bedrockApiKey: state.bedrockApiKey,
+        bedrockEnabled: state.bedrockEnabled,
+        bedrockModels: state.bedrockModels,
         customProviders: state.customProviders,
       }),
     }
@@ -351,6 +371,7 @@ export function isApiProviderEnabled(
   settings: ProviderToggleSettings = useSettings.getState()
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled;
+  if (apiProvider === "bedrock") return settings.bedrockEnabled;
   if (apiProvider === "gemini") return settings.geminiEnabled;
   if (apiProvider === "opencode") return settings.opencodeEnabled;
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled;
@@ -390,6 +411,7 @@ export function filterSelectableModelIds(
 export function getEnabledRoutes(settings: SettingsState): ModelInfo[] {
   return [
     ...MODEL_CATALOG,
+    ...(settings.bedrockEnabled ? getBedrockModelInfos(settings.bedrockModels) : []),
     ...(settings.opencodeEnabled ? getOpenCodeModelInfos(settings.opencodeModels) : []),
     ...(settings.groqEnabled ? getGroqExtraModelInfos(settings.groqExtraModels) : []),
     ...(settings.geminiEnabled ? getGeminiExtraModelInfos(settings.geminiExtraModels) : []),

@@ -22,6 +22,7 @@ type RequestBody = {
   apiKey?: string;
   geminiApiKey?: string;
   opencodeApiKey?: string;
+  bedrockApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;
   ollamaCloudBaseUrl?: string;
@@ -39,6 +40,10 @@ const OPENCODE_URLS = [
   "https://api.opencode.ai/v1/chat/completions",
 ] as const;
 const OPENCODE_PREFIX = "opencode/";
+const BEDROCK_PREFIX = "bedrock/";
+// Project-scoped "mantle" endpoint. Note .api.aws, and the plain /v1 path —
+// the /openai/v1 variant exists but rejects these model ids.
+const BEDROCK_URL = "https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions";
 
 // Guards against endpoints that return a "fake" HTTP 200 with a plain-text
 // error body (e.g. "Not Found") instead of a real streaming response. A real
@@ -536,6 +541,35 @@ export async function POST(req: NextRequest) {
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  // Amazon Bedrock via the project-scoped mantle endpoint (bedrock/<model-id>).
+  if (model.startsWith(BEDROCK_PREFIX)) {
+    const bedrockModel = model.slice(BEDROCK_PREFIX.length);
+    if (!bedrockModel) return new Response("Missing Bedrock model name.", { status: 400 });
+
+    const bedrockKey = body.bedrockApiKey || process.env.AWS_Bedrock_API_Key || process.env.AWS_BEDROCK_API_KEY;
+    if (!bedrockKey) {
+      return new Response("No Amazon Bedrock API key. Add AWS_Bedrock_API_Key to .env.local or Settings.", { status: 401 });
+    }
+
+    const upstream = await fetch(BEDROCK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": bedrockKey },
+      body: JSON.stringify({ model: bedrockModel, messages, stream: true }),
+    }).catch((err: unknown) => {
+      return new Response(
+        `Amazon Bedrock is unreachable. ${err instanceof Error ? err.message : String(err)}`,
+        { status: 502 }
+      );
+    });
+
+    if (upstream instanceof Response && upstream.status !== 200) {
+      return new Response(await upstream.text().catch(() => `HTTP ${upstream.status}`), { status: upstream.status });
+    }
+    const bedrockRes = upstream as Response;
+    if (!bedrockRes.body) return new Response("No response body", { status: 502 });
+    return streamOpenAiCompatible(bedrockRes);
   }
 
   // OpenCode Zen gateway path (opencode/<model-name>).

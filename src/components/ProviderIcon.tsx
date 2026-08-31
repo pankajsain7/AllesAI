@@ -46,14 +46,18 @@ const LETTERS: Record<ProviderKey, string> = {
   nvidia:   "NV",
   qwen:     "QW",
   gemini:   "GG",
-  zhipu:    "ZP",
+  zhipu:    "ZA",
   minimax:  "MM",
+  mistral:  "MS",
+  moonshot: "MK",
   opencode: "OZ",
   ollama:   "OL",
+  bedrock:  "BR",
   custom:   "CU",
 };
 
 const API_LETTERS: Record<ApiProviderKey, string> = {
+  bedrock: "BR",
   groq: "GQ",
   gemini: "GG",
   opencode: "OZ",

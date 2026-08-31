@@ -46,6 +46,10 @@ const COUNCIL_SYNTHESIS_NOTE_BUDGET = 1_600;
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
+// Project-scoped "mantle" endpoint. Note .api.aws, and the plain /v1 path —
+// the /openai/v1 variant exists but rejects these model ids.
+const BEDROCK_URL = "https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions";
+const BEDROCK_PREFIX = "bedrock/";
 const OPENCODE_PREFIX = "opencode/";
 const OLLAMA_PREFIX = "ollama/";
 const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
@@ -78,6 +82,7 @@ type RequestBody = {
   apiKey?: string;
   geminiApiKey?: string;
   opencodeApiKey?: string;
+  bedrockApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;
   ollamaCloudBaseUrl?: string;
@@ -100,7 +105,7 @@ type JudgeResult = {
 };
 
 
-type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq" | "custom";
+type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq" | "bedrock" | "custom";
 type QualityMode = "quick" | "deep";
 type CouncilRoundName = "opening" | "critique" | "convergence";
 type CouncilRound = {
@@ -282,6 +287,7 @@ function providerFor(modelId: string): ProviderKey {
   if (modelId.startsWith(CLOUD_OLLAMA_PREFIX)) return "ollama-cloud";
   if (modelId.startsWith(OLLAMA_PREFIX)) return "ollama";
   if (modelId.startsWith(OPENCODE_PREFIX)) return "opencode";
+  if (modelId.startsWith(BEDROCK_PREFIX)) return "bedrock";
   if (modelId.startsWith(CUSTOM_PREFIX)) return "custom";
   if (modelId.startsWith("gemini")) return "gemini";
   return "groq";
@@ -291,6 +297,7 @@ function modelNameForProvider(modelId: string): string {
   if (modelId.startsWith(CLOUD_OLLAMA_PREFIX)) return modelId.slice(CLOUD_OLLAMA_PREFIX.length);
   if (modelId.startsWith(OLLAMA_PREFIX)) return modelId.slice(OLLAMA_PREFIX.length);
   if (modelId.startsWith(OPENCODE_PREFIX)) return modelId.slice(OPENCODE_PREFIX.length);
+  if (modelId.startsWith(BEDROCK_PREFIX)) return modelId.slice(BEDROCK_PREFIX.length);
   return modelId.replace(/^groq\//, "");
 }
 
@@ -298,6 +305,7 @@ function keyFor(body: RequestBody, modelId: string): string | undefined {
   const provider = providerFor(modelId);
   if (provider === "gemini") return body.geminiApiKey || process.env.GEMINI_API_KEY;
   if (provider === "groq") return body.apiKey || process.env.GROQ_API_KEY;
+  if (provider === "bedrock") return body.bedrockApiKey || process.env.AWS_Bedrock_API_Key || process.env.AWS_BEDROCK_API_KEY;
   if (provider === "opencode") return body.opencodeApiKey || process.env.OpenCode_API_Key || process.env.OPENCODE_API_KEY;
   return body.ollamaApiKey || process.env.OLLAMA_API_KEY;
 }
@@ -427,6 +435,19 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
       ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`${provider === "ollama-cloud" ? "Ollama API" : "Ollama"} is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
+    });
+  }
+
+  if (provider === "bedrock") {
+    const key = keyFor(body, modelId);
+    if (!key) throw new UpstreamError("No Amazon Bedrock API key. Add it in Settings.", 401);
+    return fetch(BEDROCK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": key },
+      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: stream ? 8192 : 1200, stream }),
+      ...(signal ? { signal } : {}),
+    }).catch((err: unknown) => {
+      throw new UpstreamError(`Amazon Bedrock is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
     });
   }
 

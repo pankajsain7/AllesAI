@@ -7,16 +7,20 @@ export type ProviderKey =
   | "gemini"
   | "zhipu"
   | "minimax"
+  | "mistral"
+  | "moonshot"
   | "opencode"
   | "ollama"
+  | "bedrock"
   | "custom";
 
 export type ApiProviderKey =
+  | "bedrock"
   | "groq"
-  | "gemini"
   | "opencode"
   | "ollama-cloud"
   | "ollama-local"
+  | "gemini"
   | "custom";
 
 export type ProviderInfo = {
@@ -39,14 +43,23 @@ export const PROVIDERS: Record<ProviderKey, ProviderInfo> = {
   nvidia:   { key: "nvidia",   name: "NVIDIA",   color: "#76b900" },
   qwen:     { key: "qwen",     name: "Qwen",     color: "#6750a4" },
   gemini:   { key: "gemini",   name: "Google",   color: "#1a73e8" },
-  zhipu:    { key: "zhipu",    name: "Zhipu",    color: "#2563eb" },
+  zhipu:    { key: "zhipu",    name: "Z.ai",     color: "#2563eb" },
   minimax:  { key: "minimax",  name: "MiniMax",  color: "#111827" },
+  mistral:  { key: "mistral",  name: "Mistral",  color: "#fa520f" },
+  moonshot: { key: "moonshot", name: "Moonshot", color: "#0f172a" },
   opencode: { key: "opencode", name: "OpenCode", color: "#ea580c" },
   ollama:   { key: "ollama",   name: "Ollama",   color: "#374151" },
+  bedrock:  { key: "bedrock",  name: "Bedrock",  color: "#ff9900" },
   custom:   { key: "custom",   name: "Custom",   color: "#7c3aed" },
 };
 
 export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
+  bedrock: {
+    key: "bedrock",
+    name: "Amazon Bedrock",
+    shortName: "Bedrock",
+    color: "#ff9900",
+  },
   groq: {
     key: "groq",
     name: "Groq",
@@ -88,22 +101,28 @@ export const API_PROVIDERS: Record<ApiProviderKey, ApiProviderInfo> = {
 export const PROVIDER_ORDER: ProviderKey[] = [
   "openai",
   "deepseek",
-  "meta",
-  "nvidia",
-  "qwen",
-  "gemini",
   "zhipu",
+  "moonshot",
+  "mistral",
+  "qwen",
+  "nvidia",
+  "meta",
   "minimax",
   "opencode",
   "ollama",
+  "bedrock",
+  "gemini",
   "custom",
 ];
 
+// Bedrock first: measured fastest to first token with the most long-context
+// headroom. Gemini sits near the bottom by request.
 export const API_PROVIDER_ORDER: ApiProviderKey[] = [
+  "bedrock",
   "groq",
-  "gemini",
-  "opencode",
   "ollama-cloud",
+  "opencode",
   "ollama-local",
+  "gemini",
   "custom",
 ];

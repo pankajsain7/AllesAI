@@ -35,6 +35,7 @@ export function HeroComposer({ convId }: { convId: string }) {
   const webSearch = useSettings((s) => s.webSearch);
   const setWebSearch = useSettings((s) => s.setWebSearch);
   const groqEnabled = useSettings((s) => s.groqEnabled);
+  const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
@@ -54,12 +55,13 @@ export function HeroComposer({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
+      bedrockEnabled,
       geminiEnabled,
       opencodeEnabled,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [groqEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
+    [groqEnabled, bedrockEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled]
   );
 
   const availableFamilyIds = useMemo(() => {

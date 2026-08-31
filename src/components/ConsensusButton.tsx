@@ -57,9 +57,11 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const setSharedResultJudge = useChat((s) => s.setSharedResultJudge);
   const apiKey = useSettings((s) => s.apiKey);
   const groqEnabled = useSettings((s) => s.groqEnabled);
+  const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
   const geminiApiKey = useSettings((s) => s.geminiApiKey);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeApiKey = useSettings((s) => s.opencodeApiKey);
+  const bedrockApiKey = useSettings((s) => s.bedrockApiKey);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const ollamaBaseUrl = useSettings((s) => s.ollamaBaseUrl);
   const ollamaApiKey = useSettings((s) => s.ollamaApiKey);
@@ -72,6 +74,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
+      bedrockEnabled,
       geminiEnabled,
       opencodeEnabled,
       cloudOllamaEnabled,
@@ -87,11 +90,13 @@ export function ConsensusButton({ convId }: { convId: string }) {
       geminiEnabled,
       opencodeApiKey,
       opencodeEnabled,
+      bedrockApiKey,
+      bedrockEnabled,
       ollamaApiKey,
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [apiKey, cloudOllamaEnabled, geminiApiKey, geminiEnabled, groqEnabled, localEnabled, ollamaApiKey, opencodeApiKey, opencodeEnabled]
+    [apiKey, bedrockApiKey, bedrockEnabled, cloudOllamaEnabled, geminiApiKey, geminiEnabled, groqEnabled, localEnabled, ollamaApiKey, opencodeApiKey, opencodeEnabled]
   );
 
   const settingsSnapshot = useSettings((s) => s);
@@ -309,6 +314,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
           apiKey,
           geminiApiKey,
           opencodeApiKey,
+          bedrockApiKey,
           ollamaBaseUrl,
           ollamaApiKey,
           ollamaCloudBaseUrl,

@@ -554,6 +554,47 @@ export function SettingsDialog() {
                   </div>
 
                   <div className="space-y-2 border-t border-[var(--border)] pt-4">
+                    <Toggle
+                      on={s.bedrockEnabled}
+                      onChange={s.setBedrockEnabled}
+                      label="Enable Amazon Bedrock models"
+                    />
+                    <div className="text-[11px] text-[var(--fg-muted)]">
+                      GLM, Kimi, DeepSeek, Mistral and Qwen via the Bedrock project endpoint.
+                    </div>
+                    {s.bedrockEnabled && (
+                      <>
+                        <label className="block text-xs font-medium text-[var(--fg)]">
+                          Bedrock API key{" "}
+                          <a
+                            href="https://console.aws.amazon.com/bedrock"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-1 inline-flex items-center gap-0.5 text-[var(--accent)] hover:underline"
+                          >
+                            get key <ExternalLink size={10} />
+                          </a>
+                        </label>
+                        <input
+                          type="password"
+                          value={s.bedrockApiKey}
+                          onChange={(e) => s.setBedrockApiKey(e.target.value)}
+                          placeholder="ABSK... (long-term Bedrock API key)"
+                          className="w-full rounded border border-[var(--border)] bg-[var(--bg-soft)] px-2 py-1.5 text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)] focus:border-[var(--border-strong)]"
+                        />
+                        {s.bedrockApiKey.trim() && !/^ABSK.*=$/.test(s.bedrockApiKey.trim()) && (
+                          <div className="text-[11px] text-amber-600">
+                            Bedrock keys start with ABSK and end with =. This one looks truncated.
+                          </div>
+                        )}
+                        <span className="text-[11px] text-[var(--fg-muted)]">
+                          {s.bedrockModels.length} model{s.bedrockModels.length === 1 ? "" : "s"} imported
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 border-t border-[var(--border)] pt-4">
                     <Toggle on={s.opencodeEnabled} onChange={setOpencodeEnabled} label="Enable OpenCode Zen models" />
                     <div className="text-[11px] text-[var(--fg-muted)]">
                       Free and low-cost routes curated by the OpenCode Zen gateway.

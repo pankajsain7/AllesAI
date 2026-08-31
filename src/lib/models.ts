@@ -68,6 +68,7 @@ export const OLLAMA_MODEL_PREFIX = "ollama/";
 export const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
 export const CUSTOM_MODEL_PREFIX = "custom/";
 export const OPENCODE_MODEL_PREFIX = "opencode/";
+export const BEDROCK_MODEL_PREFIX = "bedrock/";
 
 // User-defined OpenAI-compatible API provider.
 export type CustomProvider = {
@@ -230,6 +231,152 @@ export const OPENCODE_KNOWN_MODELS: Record<
 // Imported by default so existing users keep the same free models they had
 // before OpenCode model browsing existed.
 export const DEFAULT_OPENCODE_MODEL_IDS = Object.keys(OPENCODE_KNOWN_MODELS);
+
+// Amazon Bedrock via the project-scoped "mantle" endpoint. Every entry below
+// was verified live: it streams, and it digests an ~82k-char / 20.5k-token
+// payload representing consensus over ten long model answers.
+// Latencies are seconds to first streamed token.
+export const BEDROCK_KNOWN_MODELS: Record<
+  string,
+  {
+    label: string;
+    shortLabel?: string;
+    provider: ProviderKey;
+    category: string;
+    context: number;
+    thinking?: boolean;
+    vision?: boolean;
+    paramSize?: string;
+    bestFor?: string;
+  }
+> = {
+  "zai.glm-4.7-flash": {
+    label: "GLM 4.7 Flash",
+    shortLabel: "GLM 4.7 Flash",
+    provider: "zhipu",
+    category: "General",
+    context: 200000,
+    bestFor: "Fast all-purpose chat",
+  },
+  "moonshotai.kimi-k2.5": {
+    label: "Kimi K2.5",
+    shortLabel: "Kimi K2.5",
+    provider: "moonshot",
+    category: "Reasoning",
+    context: 256000,
+    thinking: true,
+    bestFor: "Long-context reasoning",
+  },
+  "deepseek.v3.2": {
+    label: "DeepSeek V3.2",
+    shortLabel: "DeepSeek V3.2",
+    provider: "deepseek",
+    category: "Reasoning",
+    context: 164000,
+    thinking: true,
+    bestFor: "Code and analysis",
+  },
+  "mistral.ministral-3-14b-instruct": {
+    label: "Ministral 3 14B",
+    shortLabel: "Ministral 14B",
+    provider: "mistral",
+    category: "General",
+    context: 128000,
+    paramSize: "14B",
+    bestFor: "Fast general answers",
+  },
+  "mistral.mistral-large-3-675b-instruct": {
+    label: "Mistral Large 3",
+    shortLabel: "Mistral Large 3",
+    provider: "mistral",
+    category: "Reasoning",
+    context: 256000,
+    paramSize: "675B",
+    bestFor: "Deep reasoning, synthesis",
+  },
+  "qwen.qwen3-235b-a22b-2507": {
+    label: "Qwen 3 235B",
+    shortLabel: "Qwen 3 235B",
+    provider: "qwen",
+    category: "Reasoning",
+    context: 256000,
+    thinking: true,
+    paramSize: "235B",
+    bestFor: "Reasoning and code",
+  },
+  "nvidia.nemotron-super-3-120b": {
+    label: "Nemotron Super 3 120B",
+    shortLabel: "Nemotron Super 3",
+    provider: "nvidia",
+    category: "Reasoning",
+    context: 128000,
+    thinking: true,
+    paramSize: "120B",
+    bestFor: "Analysis and reasoning",
+  },
+  "openai.gpt-oss-120b": {
+    label: "GPT-OSS 120B (Bedrock)",
+    shortLabel: "GPT-OSS 120B",
+    provider: "openai",
+    category: "Reasoning",
+    context: 128000,
+    thinking: true,
+    paramSize: "120B",
+    bestFor: "Reasoning, agents",
+  },
+  "zai.glm-4.7": {
+    label: "GLM 4.7",
+    shortLabel: "GLM 4.7",
+    provider: "zhipu",
+    category: "Reasoning",
+    context: 200000,
+    bestFor: "General reasoning",
+  },
+};
+
+export const DEFAULT_BEDROCK_MODEL_IDS = [
+  "zai.glm-4.7-flash",
+  "moonshotai.kimi-k2.5",
+  "deepseek.v3.2",
+  "mistral.ministral-3-14b-instruct",
+];
+
+export function toBedrockModelId(modelName: string): string {
+  return `${BEDROCK_MODEL_PREFIX}${modelName}`;
+}
+
+export function getBedrockModelName(id: string): string {
+  return id.slice(BEDROCK_MODEL_PREFIX.length);
+}
+
+export function getBedrockModelInfo(modelName: string): ModelInfo {
+  const known = BEDROCK_KNOWN_MODELS[modelName];
+  const label = known?.label ?? humanizeModelSlug(modelName.replace(/^[a-z]+\./, ""));
+  return {
+    id: toBedrockModelId(modelName),
+    label,
+    shortLabel: known?.shortLabel ?? label,
+    provider: known?.provider ?? "bedrock",
+    apiProvider: "bedrock",
+    familyId: `bedrock-${modelName}`,
+    free: false,
+    context: known?.context ?? 128000,
+    category: known?.category ?? "Bedrock",
+    thinking: known?.thinking,
+    vision: known?.vision,
+    paramSize: known?.paramSize,
+    routeHint: "Amazon Bedrock",
+    bestFor: known?.bestFor ?? "Amazon Bedrock model",
+  };
+}
+
+export function getBedrockModelInfos(modelNames: string[]): ModelInfo[] {
+  return uniqueActiveModelNames(modelNames).map(getBedrockModelInfo);
+}
+
+export function isBedrockModelId(id: string): boolean {
+  return id.startsWith(BEDROCK_MODEL_PREFIX) && id.length > BEDROCK_MODEL_PREFIX.length;
+}
 
 // Turns a model id slug (e.g. "big-pickle", "llama-3.3-70b-versatile") into a
 // readable label. Shared by every "browse and import" fallback below.

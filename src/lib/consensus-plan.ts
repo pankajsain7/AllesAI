@@ -1,5 +1,6 @@
 import {
   canUseModelForConsensus,
+  consensusProviderRank,
   getConsensusRosterEntry,
   hasProviderAccessForConsensus,
 } from "./model-rules";
@@ -50,7 +51,12 @@ export type ConsensusPlan = {
   blockers: string[];
 };
 
-const PROVIDER_ORDER: ApiProviderKey[] = ["gemini", "groq", "ollama-cloud", "opencode", "ollama-local"];
+const PROVIDER_ORDER: ApiProviderKey[] = ["bedrock", "groq", "ollama-cloud", "opencode", "ollama-local", "gemini"];
+
+// A bench deeper than this is pointless: every extra model is one more upstream
+// timeout the user waits through before the run gives up. It also keeps the
+// request inside the server's model-id array cap.
+const MAX_BENCH = 8;
 
 function tierScore(tier: PlannedModel["tier"]): number {
   if (tier === "primary") return 0;
@@ -104,23 +110,27 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
     const enabled =
       provider === "groq"
         ? settings.groqEnabled
-        : provider === "gemini"
-          ? settings.geminiEnabled
-          : provider === "opencode"
-            ? settings.opencodeEnabled
-            : provider === "ollama-cloud"
-              ? settings.cloudOllamaEnabled
-              : settings.localEnabled;
+        : provider === "bedrock"
+          ? settings.bedrockEnabled
+          : provider === "gemini"
+            ? settings.geminiEnabled
+            : provider === "opencode"
+              ? settings.opencodeEnabled
+              : provider === "ollama-cloud"
+                ? settings.cloudOllamaEnabled
+                : settings.localEnabled;
     const hasKey =
       provider === "groq"
         ? Boolean(settings.apiKey?.trim())
-        : provider === "gemini"
-          ? Boolean(settings.geminiApiKey?.trim())
-          : provider === "opencode"
-            ? Boolean(settings.opencodeApiKey?.trim())
-            : provider === "ollama-cloud"
-              ? Boolean(settings.ollamaApiKey?.trim())
-              : true; // local Ollama needs no credential
+        : provider === "bedrock"
+          ? Boolean(settings.bedrockApiKey?.trim())
+          : provider === "gemini"
+            ? Boolean(settings.geminiApiKey?.trim())
+            : provider === "opencode"
+              ? Boolean(settings.opencodeApiKey?.trim())
+              : provider === "ollama-cloud"
+                ? Boolean(settings.ollamaApiKey?.trim())
+                : true; // local Ollama needs no credential
     return {
       provider,
       name: API_PROVIDERS[provider]?.name ?? provider,
@@ -150,10 +160,13 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
     entry.eligibleModels = pool.filter((m) => m.provider === entry.provider).length;
   }
 
-  // Ranked best-first: verified tier, then measured latency, then context size.
+  // Ranked best-first: verified tier, provider priority, measured streaming
+  // latency, then context size.
   const ranked = [...pool].sort((a, b) => {
     const tierDelta = tierScore(a.tier) - tierScore(b.tier);
     if (tierDelta !== 0) return tierDelta;
+    const providerDelta = consensusProviderRank(a.provider) - consensusProviderRank(b.provider);
+    if (providerDelta !== 0) return providerDelta;
     const latencyDelta =
       (getConsensusRosterEntry(a.id)?.latencyS ?? 99) - (getConsensusRosterEntry(b.id)?.latencyS ?? 99);
     if (latencyDelta !== 0) return latencyDelta;
@@ -161,19 +174,21 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
   });
 
   // The synthesizer reads the entire multi-model transcript, so context window
-  // matters more than raw speed for this one role. Latency breaks ties, which
-  // matters because several Gemini models share the same 1M window.
+  // matters more than raw speed for this one role. Provider priority and
+  // latency break ties, which matters because several models share a window.
   const synthesizerRanked = [...ranked].sort((a, b) => {
     const tierDelta = tierScore(a.tier) - tierScore(b.tier);
     if (tierDelta !== 0) return tierDelta;
+    const providerDelta = consensusProviderRank(a.provider) - consensusProviderRank(b.provider);
+    if (providerDelta !== 0) return providerDelta;
     const contextDelta = b.model.context - a.model.context;
     if (contextDelta !== 0) return contextDelta;
     return (getConsensusRosterEntry(a.id)?.latencyS ?? 99) - (getConsensusRosterEntry(b.id)?.latencyS ?? 99);
   });
   const synthesizer = synthesizerRanked[0]?.id;
-  const synthesizerBackups = diversify(synthesizerRanked.filter((m) => m.id !== synthesizer)).map(
-    (m) => m.id
-  );
+  const synthesizerBackups = diversify(synthesizerRanked.filter((m) => m.id !== synthesizer))
+    .map((m) => m.id)
+    .slice(0, MAX_BENCH);
 
   // Two debaters from different providers whenever possible.
   const debaters = diversify(ranked)
@@ -186,7 +201,9 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
 
   const councilBackups = diversify(
     ranked.filter((m) => !debaters.includes(m.id) && !judges.includes(m.id))
-  ).map((m) => m.id);
+  )
+    .map((m) => m.id)
+    .slice(0, MAX_BENCH);
 
   const blockers: string[] = [];
   if (pool.length === 0) {

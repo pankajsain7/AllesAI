@@ -42,6 +42,7 @@ export function ModelPicker({ convId }: { convId: string }) {
   const conv = useChat((s) => s.conversations[convId]);
   const setSelectedModels = useChat((s) => s.setSelectedModels);
   const groqEnabled = useSettings((s) => s.groqEnabled);
+  const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
@@ -57,6 +58,7 @@ export function ModelPicker({ convId }: { convId: string }) {
   const enabledSettings = useMemo<ProviderToggleSettings>(
     () => ({
       groqEnabled,
+      bedrockEnabled,
       geminiEnabled,
       opencodeEnabled,
       cloudOllamaEnabled,

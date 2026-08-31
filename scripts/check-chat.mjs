@@ -25,6 +25,7 @@ const keys = {
   geminiApiKey: env.GEMINI_API_KEY,
   opencodeApiKey: env.OpenCode_API_Key,
   ollamaApiKey: env.OLLAMA_API_KEY,
+  bedrockApiKey: env.AWS_Bedrock_API_Key,
 };
 
 async function chat(model, messages) {
@@ -66,6 +67,10 @@ async function chat(model, messages) {
 }
 
 const MODELS = [
+  "bedrock/zai.glm-4.7-flash",
+  "bedrock/moonshotai.kimi-k2.5",
+  "bedrock/deepseek.v3.2",
+  "bedrock/mistral.ministral-3-14b-instruct",
   "openai/gpt-oss-120b",
   "qwen/qwen3.8-27b",
   "gemini-3.5-flash",

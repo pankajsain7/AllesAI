@@ -34,6 +34,7 @@ export function SingleModelPicker({
   const conv = useChat((s) => s.conversations[convId]);
   const setSingleModel = useChat((s) => s.setSingleModel);
   const groqEnabled = useSettings((s) => s.groqEnabled);
+  const bedrockEnabled = useSettings((s) => s.bedrockEnabled);
   const geminiEnabled = useSettings((s) => s.geminiEnabled);
   const opencodeEnabled = useSettings((s) => s.opencodeEnabled);
   const localEnabled = useSettings((s) => s.localEnabled);
@@ -46,8 +47,8 @@ export function SingleModelPicker({
   const geminiExtraModels = useSettings((s) => s.geminiExtraModels);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
-    () => ({ groqEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled }),
-    [cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    () => ({ groqEnabled, bedrockEnabled, geminiEnabled, opencodeEnabled, cloudOllamaEnabled, localEnabled }),
+    [bedrockEnabled, cloudOllamaEnabled, geminiEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const families = useMemo(() => {

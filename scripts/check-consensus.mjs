@@ -47,6 +47,7 @@ const KEYS = {
   groq: { apiKey: env.GROQ_API_KEY ?? "", groqEnabled: true },
   gemini: { geminiApiKey: env.GEMINI_API_KEY ?? "", geminiEnabled: true },
   opencode: { opencodeApiKey: env.OpenCode_API_Key ?? "", opencodeEnabled: true },
+  bedrock: { bedrockApiKey: env.AWS_Bedrock_API_Key ?? "", bedrockEnabled: true },
   ollama: { ollamaApiKey: env.OLLAMA_API_KEY ?? "", cloudOllamaEnabled: true },
 };
 const NO_KEYS = {
@@ -56,6 +57,8 @@ const NO_KEYS = {
   geminiEnabled: false,
   opencodeApiKey: "",
   opencodeEnabled: false,
+  bedrockApiKey: "",
+  bedrockEnabled: false,
   ollamaApiKey: "",
   cloudOllamaEnabled: false,
   localEnabled: false,
@@ -66,9 +69,10 @@ const SCENARIOS = [
   ["groq only", KEYS.groq],
   ["gemini only", KEYS.gemini],
   ["opencode only", KEYS.opencode],
+  ["bedrock only", KEYS.bedrock],
   ["ollama cloud only", KEYS.ollama],
   ["groq + gemini", { ...KEYS.groq, ...KEYS.gemini }],
-  ["all providers", { ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama }],
+  ["all providers", { ...KEYS.bedrock, ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama }],
 ];
 
 let failures = 0;
@@ -117,7 +121,7 @@ for (const [label, overrides] of SCENARIOS) {
 
 // Provider diversity is the whole point of the backup bench.
 const allPlan = planConsensusRun(
-  settingsWith({ ...NO_KEYS, ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama })
+  settingsWith({ ...NO_KEYS, ...KEYS.bedrock, ...KEYS.groq, ...KEYS.gemini, ...KEYS.opencode, ...KEYS.ollama })
 );
 const debaterProviders = new Set(
   allPlan.debaters.map((id) => allPlan.pool.find((m) => m.id === id)?.provider)
@@ -144,6 +148,7 @@ if (process.argv.includes("--live")) {
     apiKey: env.GROQ_API_KEY,
     geminiApiKey: env.GEMINI_API_KEY,
     opencodeApiKey: env.OpenCode_API_Key,
+    bedrockApiKey: env.AWS_Bedrock_API_Key,
     ollamaApiKey: env.OLLAMA_API_KEY,
   };
 

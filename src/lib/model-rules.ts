@@ -42,13 +42,18 @@ type RosterEntry = {
 };
 
 export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
-  // --- Gemini (1M context; best at long multi-model transcripts)
-  "gemini-3.5-flash": { tier: "primary", latencyS: 2.4 },
-  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.5 },
-  "gemma-4-31b-it": { tier: "backup", latencyS: 1.2 },
-  // Newer than 3.5-flash but 4.6-9.8s to first token when streaming, so it sits
-  // on the bench instead of being auto-selected as synthesizer.
-  "gemini-3.6-flash": { tier: "backup", latencyS: 6 },
+  // --- Amazon Bedrock. Fastest to first token and comfortably digests a 20k
+  // token consensus payload, so these lead every role.
+  "bedrock/zai.glm-4.7-flash": { tier: "primary", latencyS: 0.4 },
+  "bedrock/mistral.mistral-large-3-675b-instruct": { tier: "primary", latencyS: 0.6 },
+  "bedrock/qwen.qwen3-235b-a22b-2507": { tier: "primary", latencyS: 0.5 },
+  "bedrock/deepseek.v3.2": { tier: "primary", latencyS: 0.5 },
+  "bedrock/nvidia.nemotron-super-3-120b": { tier: "backup", latencyS: 0.6 },
+  "bedrock/mistral.ministral-3-14b-instruct": { tier: "backup", latencyS: 0.5 },
+  "bedrock/openai.gpt-oss-120b": { tier: "backup", latencyS: 0.5 },
+  "bedrock/zai.glm-4.7": { tier: "backup", latencyS: 0.6 },
+  // Measured 0.6s and 4.1s to first token on separate runs, so bench only.
+  "bedrock/moonshotai.kimi-k2.5": { tier: "backup", latencyS: 4.1 },
 
   // --- Groq (fastest inference)
   "openai/gpt-oss-120b": { tier: "primary", latencyS: 0.3 },
@@ -56,8 +61,8 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "openai/gpt-oss-20b": { tier: "backup", latencyS: 0.2 },
 
   // --- Ollama Cloud (free tier verified; paid-only models deliberately absent)
-  "ollama-cloud/gemma4:31b": { tier: "primary", latencyS: 2.9 },
-  "ollama-cloud/nemotron-3-super": { tier: "primary", latencyS: 2.7 },
+  "ollama-cloud/gemma4:31b": { tier: "backup", latencyS: 2.9 },
+  "ollama-cloud/nemotron-3-super": { tier: "backup", latencyS: 2.7 },
   "ollama-cloud/gpt-oss:120b": { tier: "backup", latencyS: 1.6 },
 
   // --- OpenCode Zen (free tier). Backup only: the account-wide free usage cap
@@ -67,7 +72,31 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2.2 },
   "opencode/mimo-v2.5-free": { tier: "backup", latencyS: 6 },
   "opencode/nemotron-3-ultra-free": { tier: "backup", latencyS: 9.9 },
+
+  // --- Gemini. Deliberately last-resort: slowest to first token of the
+  // verified providers, and its free tier exhausts quickly (429).
+  "gemini-3.5-flash": { tier: "backup", latencyS: 2.4 },
+  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.5 },
+  "gemma-4-31b-it": { tier: "backup", latencyS: 1.2 },
+  "gemini-3.6-flash": { tier: "backup", latencyS: 6 },
 };
+
+// Providers are tried in this order when ranking ties. Gemini is last by
+// request; Bedrock leads because it measured fastest with the most headroom.
+export const CONSENSUS_PROVIDER_PRIORITY: ApiProviderKey[] = [
+  "bedrock",
+  "groq",
+  "ollama-cloud",
+  "opencode",
+  "ollama-local",
+  "gemini",
+  "custom",
+];
+
+export function consensusProviderRank(apiProvider: ApiProviderKey): number {
+  const i = CONSENSUS_PROVIDER_PRIORITY.indexOf(apiProvider);
+  return i === -1 ? CONSENSUS_PROVIDER_PRIORITY.length : i;
+}
 
 // A model is too slow to be an auto-selected primary above this latency.
 const SLOW_MODEL_THRESHOLD_S = 10;
@@ -105,6 +134,7 @@ export function isFastEnoughForPrimaryRole(modelId: string): boolean {
 
 function isConsensusAllowedModel(model: Pick<ModelInfo, "id" | "apiProvider">): boolean {
   if (getConsensusRosterEntry(model.id)) return true;
+  if (model.apiProvider === "bedrock") return true;
   // All Gemini models are allowed — they have large context windows and strong
   // synthesis quality, making them ideal fallbacks for large transcripts.
   if (model.apiProvider === "gemini") return true;
@@ -151,6 +181,8 @@ type ProviderAccessSettings = {
   geminiEnabled: boolean;
   opencodeApiKey?: string;
   opencodeEnabled: boolean;
+  bedrockApiKey?: string;
+  bedrockEnabled: boolean;
   ollamaApiKey?: string;
   cloudOllamaEnabled: boolean;
   localEnabled: boolean;
@@ -174,6 +206,7 @@ export function hasProviderAccessForConsensus(
   settings: ProviderAccessSettings
 ): boolean {
   if (apiProvider === "groq") return settings.groqEnabled && Boolean(settings.apiKey?.trim());
+  if (apiProvider === "bedrock") return settings.bedrockEnabled && Boolean(settings.bedrockApiKey?.trim());
   if (apiProvider === "gemini") return settings.geminiEnabled && Boolean(settings.geminiApiKey?.trim());
   if (apiProvider === "opencode") return settings.opencodeEnabled && Boolean(settings.opencodeApiKey?.trim());
   if (apiProvider === "ollama-cloud") return settings.cloudOllamaEnabled && Boolean(settings.ollamaApiKey?.trim());
