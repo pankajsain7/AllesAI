@@ -15,14 +15,18 @@
 |---|---|---|---|---|
 | GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
 | Qwen 3.8 27B | Qwen / Alibaba | Groq | 128K | All-purpose chat, code, reasoning |
-| Qwen 3.6 27B | Qwen / Alibaba | Groq | 128K | Fast reasoning, analysis |
 | GPT-OSS 20B | OpenAI (open-weight) | Groq | 128K | Ultra-fast responses |
-| Gemini 3.5 Flash | Google | Gemini API | 1M | Latest Google model, vision |
-| Gemma 4 31B | Google | Ollama Cloud | 256K | General, vision, thinking |
-| Nemotron 3 Super | NVIDIA | Ollama Cloud | 128K | Reasoning & analysis |
+| Gemini 3.5 Flash | Google | Gemini API | 1M | Large context, vision |
+| Gemma 4 31B | Google | Gemini API | 256K | Open-weight general assistant |
 
-> All core models are **free** on their respective API tiers with your own key.
-> Ollama Cloud models require an [ollama.com](https://ollama.com) account (some require a paid tier).
+Every core model is **free** on its provider's tier with your own key. Ollama
+Cloud presets (Gemma 4 31B, Nemotron 3 Super, GPT-OSS 120B) need a free
+[ollama.com](https://ollama.com) account.
+
+The catalog keeps **one model per family per provider** — where a provider ships
+several sizes or generations of the same model, only the strongest usable one is
+listed. Paid-tier and retired models are excluded, and every entry is verified
+with a live request.
 
 ### Browse & Import More Models
 
@@ -45,18 +49,26 @@ Consensus and council never guess. Every run is planned by
    models on the removed list, and keep the ones cleared for consensus.
 3. **Rank them.** Models verified against the live APIs sit in a roster in
    [`src/lib/model-rules.ts`](src/lib/model-rules.ts) as `primary` (fast,
-   reliable, strong) or `backup` (works, but slower or weaker). Ranking is
-   tier → measured latency → context window. Imported models the app has not
-   verified stay pickable but are never auto-selected ahead of a verified one.
+   reliable, strong) or `backup` (works, but slower or less dependable).
+   Ranking is tier → **streaming first-token latency** → context window.
+   Latency is measured against the *streaming* endpoint on purpose: a model can
+   answer in 1.4s non-streaming yet take 9s to emit its first streamed token,
+   and streaming is what chat and synthesis actually do. Imported models the
+   app has not verified stay pickable but are never auto-selected ahead of a
+   verified one.
 4. **Assign roles.**
    - *Synthesizer* — highest tier with the largest context window, since it
-     reads the entire multi-model transcript.
+     reads the entire multi-model transcript. Latency breaks ties.
    - *Debaters* — two models from **different providers**, so the debate has
      genuinely different viewpoints.
    - *Judges* — kept off the debate floor whenever the pool allows it.
 5. **Build the backup bench.** Everything left over, interleaved across
    providers so one revoked key, rate limit, or outage cannot wipe out the
    whole bench at once.
+
+> OpenCode Zen free models are deliberately **backup-only**. The free tier has
+> an account-wide usage cap that returns HTTP 429 under sustained load, so they
+> are a safety net rather than a dependable primary.
 
 ### When a model fails
 
@@ -76,12 +88,33 @@ never duplicated.
 
 ```bash
 npm run check:models          # live probe of every model route
+npm run check:ssrf            # SSRF guard blocks internal targets
 npm run check:consensus       # planner role assignment across key combinations
-npm run check:consensus:live  # + real consensus, council, and fault-injection runs
+npm run check:consensus:live  # + real consensus, council, fault injection, input validation
 ```
 
-`check:consensus:live` needs `npm run dev` running, and deliberately injects a
-dead model and a bad API key to prove the backup bench recovers.
+`check:consensus:live` needs `npm run dev` running. It deliberately injects a
+dead model and a bad API key to prove the backup bench recovers, and sends
+oversized payloads to prove input validation rejects them.
+
+---
+
+## Deploying publicly
+
+This is a BYOK proxy, so the server fetches URLs the client supplies. Before
+exposing an instance to the internet:
+
+- Private, loopback and link-local addresses are **blocked in production** by
+  [`src/lib/ssrf.ts`](src/lib/ssrf.ts), which resolves hostnames before
+  connecting so a public name pointing at an internal IP is rejected too.
+- Local Ollama needs those addresses, so they stay allowed when `NODE_ENV` is
+  not `production`. To self-host with local Ollama in production, set
+  `ALLOW_PRIVATE_NETWORK_UPSTREAM=true` — only do this on an instance that is
+  not publicly reachable.
+- `maxDuration` is raised on the chat and consensus routes; council runs
+  routinely exceed the 30s serverless default.
+- There is **no rate limiting**. Put the deployment behind auth or a rate
+  limiter, or visitors can spend your quota.
 
 ---
 

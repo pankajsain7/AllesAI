@@ -269,6 +269,27 @@ if (process.argv.includes("--live")) {
     console.log(`   answer: ${answer.slice(0, 120).replace(/\s+/g, " ")}\n`);
     check(`${label}: recovered via backup bench`, answer.trim().length > 20, streamError ?? "");
   }
+
+  // Input validation must reject abusive payloads before any upstream fan-out.
+  console.log("=== Input validation: abusive payloads must be rejected ===\n");
+  const BAD_PAYLOADS = [
+    ["oversized prompt", { ...payload, prompt: "x".repeat(250_000) }],
+    ["too many responses", { ...payload, responses: Array.from({ length: 50 }, () => ({ model: "m", content: "c" })) }],
+    ["oversized response content", { ...payload, responses: [{ model: "m", content: "x".repeat(500_000) }] }],
+    ["too many candidate models", { ...payload, mode: "council", candidateModels: Array.from({ length: 40 }, (_, i) => `m${i}`) }],
+    ["too many judge models", { ...payload, judgeModels: Array.from({ length: 40 }, (_, i) => `m${i}`) }],
+  ];
+  for (const [label, bad] of BAD_PAYLOADS) {
+    const res = await fetch(`${BASE}/api/consensus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bad),
+    });
+    const text = await res.text();
+    console.log(`${label}: HTTP ${res.status} — ${text.slice(0, 80)}`);
+    check(`${label}: must be rejected with 400`, res.status === 400, `got ${res.status}`);
+  }
+  console.log("");
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
