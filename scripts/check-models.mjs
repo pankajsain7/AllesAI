@@ -132,7 +132,6 @@ const TARGETS = [
     "mimo-v2.5-free",
     "ling-3.0-flash-fin-free",
     "laguna-s-2.1-free",
-    "nemotron-3-ultra-free",
   ].map((m) => ({ provider: "opencode", model: m })),
   ...["gemma4:31b", "nemotron-3-super", "gpt-oss:120b"].map((m) => ({
     provider: "ollama-cloud",

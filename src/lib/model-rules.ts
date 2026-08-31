@@ -15,6 +15,9 @@ const REMOVED_MODEL_TOKENS = [
   "muse-spark-1.2-contributor-free",
   "hy3-free",
   "nemotron-3.5-lightning-free",
+  // Degraded from ~10s to ~32s and now returns an empty body on roughly one
+  // call in three, which silently produces a blank answer rather than an error.
+  "nemotron-3-ultra-free",
 ];
 
 // Every model verified to actually answer a live request, with the role it is
@@ -71,7 +74,6 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "opencode/big-pickle": { tier: "backup", latencyS: 0.9 },
   "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2.2 },
   "opencode/mimo-v2.5-free": { tier: "backup", latencyS: 6 },
-  "opencode/nemotron-3-ultra-free": { tier: "backup", latencyS: 9.9 },
 
   // --- Gemini. Deliberately last-resort: slowest to first token of the
   // verified providers, and its free tier exhausts quickly (429).

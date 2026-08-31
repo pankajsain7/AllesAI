@@ -198,16 +198,6 @@ export const OPENCODE_KNOWN_MODELS: Record<
     free: true,
     bestFor: "General chat",
   },
-  "nemotron-3-ultra-free": {
-    label: "Nemotron 3 Ultra Free",
-    shortLabel: "Nemotron 3 Ultra",
-    provider: "nvidia",
-    category: "Reasoning",
-    context: 128000,
-    thinking: true,
-    free: true,
-    bestFor: "Careful reasoning (slow: ~20s)",
-  },
   "ling-3.0-flash-fin-free": {
     label: "Ling 3.0 Flash Fin Free",
     shortLabel: "Ling 3.0 Flash",
