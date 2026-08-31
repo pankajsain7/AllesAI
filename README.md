@@ -14,12 +14,12 @@
 | Model | Provider | API | Context | Capability |
 |---|---|---|---|---|
 | GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
-| Llama 3.3 70B | Meta | Groq | 128K | All-purpose, vision |
-| Qwen 3.6 27B | Qwen / Alibaba | Groq | 128K | Fast reasoning, thinking |
-| Llama 3.1 8B | Meta | Groq | 8K | Ultra-fast responses |
+| Qwen 3.8 27B | Qwen / Alibaba | Groq | 128K | All-purpose chat, code, reasoning |
+| Qwen 3.6 27B | Qwen / Alibaba | Groq | 128K | Fast reasoning, analysis |
+| GPT-OSS 20B | OpenAI (open-weight) | Groq | 128K | Ultra-fast responses |
 | Gemini 3.5 Flash | Google | Gemini API | 1M | Latest Google model, vision |
 | Gemma 4 31B | Google | Ollama Cloud | 256K | General, vision, thinking |
-| MiniMax M3 | MiniMax | Ollama Cloud | 256K | Agentic reasoning |
+| Nemotron 3 Super | NVIDIA | Ollama Cloud | 128K | Reasoning & analysis |
 
 > All core models are **free** on their respective API tiers with your own key.
 > Ollama Cloud models require an [ollama.com](https://ollama.com) account (some require a paid tier).
@@ -31,6 +31,57 @@ Go to **Settings → Browse models** to import additional models from:
 - **Gemini** — full Google model catalog
 - **OpenCode Zen** — Claude, GPT-5, Gemini 3.x and more (paid)
 - **Custom** — any OpenAI-compatible endpoint (local or remote)
+
+---
+
+## Consensus & Council: how models are chosen
+
+Consensus and council never guess. Every run is planned by
+[`src/lib/consensus-plan.ts`](src/lib/consensus-plan.ts) in five steps:
+
+1. **Detect credentials.** Read which provider keys are present and which
+   providers are enabled in Settings. Local Ollama needs no key.
+2. **Collect eligible models.** Take every route those providers expose, drop
+   models on the removed list, and keep the ones cleared for consensus.
+3. **Rank them.** Models verified against the live APIs sit in a roster in
+   [`src/lib/model-rules.ts`](src/lib/model-rules.ts) as `primary` (fast,
+   reliable, strong) or `backup` (works, but slower or weaker). Ranking is
+   tier → measured latency → context window. Imported models the app has not
+   verified stay pickable but are never auto-selected ahead of a verified one.
+4. **Assign roles.**
+   - *Synthesizer* — highest tier with the largest context window, since it
+     reads the entire multi-model transcript.
+   - *Debaters* — two models from **different providers**, so the debate has
+     genuinely different viewpoints.
+   - *Judges* — kept off the debate floor whenever the pool allows it.
+5. **Build the backup bench.** Everything left over, interleaved across
+   providers so one revoked key, rate limit, or outage cannot wipe out the
+   whole bench at once.
+
+### When a model fails
+
+| Failure | Handling |
+|---|---|
+| Rate limit / gateway blip (429, 502, 503, 504) | Retried once on the same model after a short delay — a transient error should not burn a backup |
+| Auth, not-found, bad request | Permanent; move straight to the next model on the bench |
+| Context overflow (413 or token-limit error) | Context budget halved, then retried on the next model |
+| Empty response or stalled stream | Treated as a failure; the next model takes over |
+| Debater fails mid-round | Replaced from the bench, and the swap is reported to the UI via a `status` event |
+| Judge panel fails | Non-fatal — synthesis continues without a scorecard |
+
+A model that has already streamed text is never retried, so partial answers are
+never duplicated.
+
+### Verifying it still works
+
+```bash
+npm run check:models          # live probe of every model route
+npm run check:consensus       # planner role assignment across key combinations
+npm run check:consensus:live  # + real consensus, council, and fault-injection runs
+```
+
+`check:consensus:live` needs `npm run dev` running, and deliberately injects a
+dead model and a bad API key to prove the backup bench recovers.
 
 ---
 

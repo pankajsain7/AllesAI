@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   CONSENSUS_MODEL,
+  DEFAULT_GEMINI_EXTRA_MODEL_IDS,
   DEFAULT_OPENCODE_MODEL_IDS,
   DEFAULT_SELECTED_MODELS,
   MODEL_CATALOG,
@@ -247,7 +248,7 @@ export const useSettings = create<SettingsState>()(
       setOpencodeModels: (models) => set({ opencodeModels: sanitizeModelNames(models) }),
       groqExtraModels: [],
       setGroqExtraModels: (models) => set({ groqExtraModels: sanitizeModelNames(models) }),
-      geminiExtraModels: [],
+      geminiExtraModels: DEFAULT_GEMINI_EXTRA_MODEL_IDS,
       setGeminiExtraModels: (models) => set({ geminiExtraModels: sanitizeModelNames(models) }),
       systemPrompt: "You are a helpful, concise assistant.",
       setSystemPrompt: (s) => set({ systemPrompt: s }),
@@ -568,11 +569,7 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   "gemini-2.5-flash-lite": "gemini-3.5-flash",
   // Groq retired both Llama chat models (404 model_not_found as of 2026-08-28).
   "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
-  "llama-3.1-8b-instant": "openai/gpt-oss-120b",
-  // Keep persisted selections on the strongest representative per Groq pair.
-  "qwen/qwen3.6-27b": "qwen/qwen3.8-27b",
-  "openai/gpt-oss-20b": "openai/gpt-oss-120b",
-  "groq/compound-mini": "groq/compound",
+  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
 };
 
 function findLegacyModelIds(modelId: string): string[] {

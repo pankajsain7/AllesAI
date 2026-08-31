@@ -442,7 +442,7 @@ export function SettingsDialog() {
                   <div className="space-y-2">
                     <Toggle on={s.groqEnabled} onChange={setGroqEnabled} label="Enable Groq hosted models" />
                     <div className="text-[11px] text-[var(--fg-muted)]">
-                      Fast hosted routes for GPT-OSS, Llama, and Qwen model families.
+                      Fast hosted routes for GPT-OSS and Qwen model families.
                     </div>
                     {s.groqEnabled && (
                       <>

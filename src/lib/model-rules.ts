@@ -1,33 +1,105 @@
 import type { ModelInfo } from "./models";
 import type { ApiProviderKey } from "./providers";
 
+// Models that are permanently unusable — never offer them anywhere in the app.
 // deepseek-v4-flash-free: OpenCode Zen dropped it from the free tier (still
 // listed in /v1/models but every completion request 400s "Model is unavailable").
-// muse-spark-1.2-contributor-free: consistently 500s "Internal server error"
-// on OpenCode Zen (verified across multiple attempts, not an auth issue).
-const REMOVED_MODEL_TOKENS = ["mis" + "tral", "north-mini-code", "north mini code", "deepseek-v4-flash-free", "muse-spark-1.2-contributor-free"];
+// muse-spark-1.2-contributor-free: consistently 500s "Internal server error".
+// hy3-free: OpenCode Zen now 401s "Model hy3-free is not supported".
+// nemotron-3.5-lightning-free: never returns — times out past 60s on every call.
+const REMOVED_MODEL_TOKENS = [
+  "mis" + "tral",
+  "north-mini-code",
+  "north mini code",
+  "deepseek-v4-flash-free",
+  "muse-spark-1.2-contributor-free",
+  "hy3-free",
+  "nemotron-3.5-lightning-free",
+];
 
-// The ONLY models allowed to run consensus and council (as synthesizer,
-// debater, or judge). Curated so answer quality stays consistent and high no
-// matter which one the user picks.
-export const CONSENSUS_COUNCIL_MODEL_IDS = [
-  // Gemini: 1 model (latest fast generation, 1M context)
-  "gemini-3.5-flash",
-  // Groq: 3 models (diverse sizes + capabilities for redundancy)
-  "qwen/qwen3.8-27b",
-  "openai/gpt-oss-120b",
-  // Ollama: 2 models (cloud-hosted backups)
-  "ollama-cloud/gemma4:31b",
-  "ollama-cloud/nemotron-3-super",
-] as const;
+// Every model verified to actually answer a live request, with the role it is
+// trusted to play in consensus/council. Tiers drive automatic selection:
+//
+//   "primary" — fast AND reliable AND strong enough to synthesize or judge.
+//               Auto-selected first for synthesizer / debater / judge.
+//   "backup"  — verified working, but weaker, smaller, or noticeably slower.
+//               Only used to fill a bench or replace a failed primary.
+//
+// Anything not listed here is still *pickable* by the user (if its provider
+// allows it) but is never auto-selected ahead of a verified model.
+export type ConsensusTier = "primary" | "backup";
 
-const ALLOWED_ID_SET = new Set<string>(CONSENSUS_COUNCIL_MODEL_IDS);
+type RosterEntry = {
+  tier: ConsensusTier;
+  /** Typical end-to-end latency in seconds, measured against the live API. */
+  latencyS: number;
+};
+
+export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
+  // --- Gemini (largest context windows; best at long multi-model transcripts)
+  "gemini-3.5-flash": { tier: "primary", latencyS: 2 },
+  "gemini-3.6-flash": { tier: "primary", latencyS: 2 },
+  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 1 },
+  "gemini-3.1-flash-lite": { tier: "backup", latencyS: 1 },
+
+  // --- Groq (fastest inference)
+  "openai/gpt-oss-120b": { tier: "primary", latencyS: 2 },
+  "qwen/qwen3.8-27b": { tier: "primary", latencyS: 2 },
+  "qwen/qwen3.6-27b": { tier: "primary", latencyS: 3 },
+  "openai/gpt-oss-20b": { tier: "backup", latencyS: 1 },
+
+  // --- Ollama Cloud (free tier verified; paid-only models deliberately absent)
+  "ollama-cloud/gemma4:31b": { tier: "primary", latencyS: 3 },
+  "ollama-cloud/nemotron-3-super": { tier: "primary", latencyS: 4 },
+  "ollama-cloud/gpt-oss:120b": { tier: "backup", latencyS: 3 },
+  "ollama-cloud/gpt-oss:20b": { tier: "backup", latencyS: 2 },
+  "ollama-cloud/nemotron-3-nano:30b": { tier: "backup", latencyS: 1 },
+  "ollama-cloud/nemotron-3-ultra": { tier: "backup", latencyS: 40 },
+
+  // --- OpenCode Zen (free tier; the safety net when no other key is present)
+  "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2 },
+  "opencode/laguna-s-2.1-free": { tier: "backup", latencyS: 5 },
+  "opencode/big-pickle": { tier: "backup", latencyS: 5 },
+  "opencode/mimo-v2.5-free": { tier: "backup", latencyS: 6 },
+  "opencode/nemotron-3-ultra-free": { tier: "backup", latencyS: 18 },
+};
+
+// A model is too slow to be an auto-selected primary above this latency.
+const SLOW_MODEL_THRESHOLD_S = 10;
+
+export const CONSENSUS_COUNCIL_MODEL_IDS = Object.keys(CONSENSUS_MODEL_ROSTER);
+
 // Ollama models are allowed whether they resolve to the cloud or a local route
 // of the same model name.
-const ALLOWED_OLLAMA_NAMES = new Set(["gemma4:31b", "nemotron-3-super"]);
+const ALLOWED_OLLAMA_NAMES = new Set(
+  Object.keys(CONSENSUS_MODEL_ROSTER)
+    .filter((id) => id.startsWith("ollama-cloud/"))
+    .map((id) => id.slice("ollama-cloud/".length))
+);
+
+/** Roster entry for a model id, normalising local↔cloud Ollama routes. */
+export function getConsensusRosterEntry(modelId: string): RosterEntry | undefined {
+  const direct = CONSENSUS_MODEL_ROSTER[modelId];
+  if (direct) return direct;
+  if (modelId.startsWith("ollama/")) {
+    const name = modelId.slice("ollama/".length).replace(/:latest$/, "");
+    return CONSENSUS_MODEL_ROSTER[`ollama-cloud/${name}`];
+  }
+  return undefined;
+}
+
+export function getConsensusTier(modelId: string): ConsensusTier | undefined {
+  return getConsensusRosterEntry(modelId)?.tier;
+}
+
+/** True when the model is verified fast enough to be auto-picked as a primary. */
+export function isFastEnoughForPrimaryRole(modelId: string): boolean {
+  const entry = getConsensusRosterEntry(modelId);
+  return entry ? entry.tier === "primary" && entry.latencyS <= SLOW_MODEL_THRESHOLD_S : false;
+}
 
 function isConsensusAllowedModel(model: Pick<ModelInfo, "id" | "apiProvider">): boolean {
-  if (ALLOWED_ID_SET.has(model.id)) return true;
+  if (getConsensusRosterEntry(model.id)) return true;
   // All Gemini models are allowed — they have large context windows and strong
   // synthesis quality, making them ideal fallbacks for large transcripts.
   if (model.apiProvider === "gemini") return true;
@@ -38,20 +110,28 @@ function isConsensusAllowedModel(model: Pick<ModelInfo, "id" | "apiProvider">): 
       .replace(/:latest$/, "");
     return ALLOWED_OLLAMA_NAMES.has(name);
   }
+  // OpenCode Zen free models are allowed so a user with only an OpenCode key
+  // can still run consensus and council.
+  if (model.apiProvider === "opencode") return true;
   return false;
 }
 
-// Default synthesizer/judge preference order (all from the allowlist above).
-export const CONSENSUS_PRIORITY_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
+// Default synthesizer/judge preference order — verified primaries first.
+export const CONSENSUS_PRIORITY_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS.filter(
+  (id) => CONSENSUS_MODEL_ROSTER[id].tier === "primary"
+);
 
-// Default council debaters + judge pool (all from the allowlist above).
-export const COUNCIL_PRIMARY_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
+// Default council debaters + judge pool.
+export const COUNCIL_PRIMARY_MODEL_IDS = CONSENSUS_PRIORITY_MODEL_IDS;
 
-// No silent fallback bench — if a user-selected model fails, the run errors out.
-export const COUNCIL_FALLBACK_MODEL_IDS = [] as const;
+// Verified bench used to replace a model that fails mid-run.
+export const COUNCIL_FALLBACK_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS.filter(
+  (id) => CONSENSUS_MODEL_ROSTER[id].tier === "backup"
+);
 
-// Judge pool (all from the allowlist above).
-export const JUDGE_MODEL_IDS = CONSENSUS_COUNCIL_MODEL_IDS;
+// Judge pool.
+export const JUDGE_MODEL_IDS = CONSENSUS_PRIORITY_MODEL_IDS;
+
 
 // Council debaters and the judge must come from the same curated allowlist as
 // consensus, so debate/verdict quality is consistent.

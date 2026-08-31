@@ -4,26 +4,19 @@ import { useMemo, useRef, useState } from "react";
 import { Maximize2, Minimize2, Sparkles, Users, X } from "lucide-react";
 import {
   filterEnabledModelIds,
-  getEnabledRoutes,
   useChat,
   useSettings,
   type ProviderToggleSettings,
   type SharedResultJudge,
   type SharedResultScore,
 } from "@/lib/store";
+import { getModel } from "@/lib/models";
 import {
-  getCloudOllamaModelName,
-  getModel,
-  isCloudOllamaModelId,
-  toOllamaModelId,
-} from "@/lib/models";
-import {
-  CONSENSUS_PRIORITY_MODEL_IDS,
-  JUDGE_MODEL_IDS,
   canUseModelForConsensus,
   getModelAlias,
   hasProviderAccessForConsensus,
 } from "@/lib/model-rules";
+import { planConsensusRun } from "@/lib/consensus-plan";
 import { API_PROVIDERS } from "@/lib/providers";
 import { Markdown } from "./Markdown";
 import { SharedResultCard } from "./SharedResultsLane";
@@ -74,7 +67,6 @@ export function ConsensusButton({ convId }: { convId: string }) {
   const localEnabled = useSettings((s) => s.localEnabled);
   const webSearchEnabled = useSettings((s) => s.webSearch);
   const cloudOllamaEnabled = useSettings((s) => s.cloudOllamaEnabled);
-  const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const saveConsensusToChat = useSettings((s) => s.saveConsensusToChat);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
@@ -120,51 +112,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
   );
   const abortRef = useRef<AbortController | null>(null);
 
-  const localModelNames = useMemo(
-    () =>
-      new Set(
-        availableLocalModels.map((model) => stripLatest(model.name).toLowerCase())
-      ),
-    [availableLocalModels]
+  // Single source of truth for "which providers have keys, which models are
+  // usable, and who plays which role". See lib/consensus-plan.ts.
+  const plan = useMemo(
+    () => planConsensusRun({ ...settingsSnapshot, ...accessSettings }),
+    [settingsSnapshot, accessSettings]
   );
-
-  const consensusChoices = useMemo<ConsensusChoice[]>(() => {
-    const ids = CONSENSUS_PRIORITY_MODEL_IDS.map((id) =>
-      resolvePreferredRoute(id, accessSettings, localModelNames)
-    ).filter((id): id is string => Boolean(id));
-    return unique(ids)
-      .map((id) => getEligibleChoice(id, accessSettings))
-      .filter((choice): choice is ConsensusChoice => Boolean(choice))
-      // Largest context window first — long-context models handle bigger
-      // multi-model transcripts and prompts more reliably as the synthesizer.
-      .sort((a, b) => b.model.context - a.model.context);
-  }, [accessSettings, localModelNames]);
-
-  const judgeChoiceIds = useMemo(
-    () =>
-      unique(
-        JUDGE_MODEL_IDS.map((id) => resolvePreferredRoute(id, accessSettings, localModelNames)).filter(
-          (id): id is string => Boolean(id)
-        )
-      ),
-    [accessSettings, localModelNames]
+  const modelCandidates = useMemo<ConsensusChoice[]>(
+    () => plan.pool.map((entry) => ({ id: entry.id, model: entry.model })),
+    [plan]
   );
-
-  // Every model the user currently has access to and could plausibly act as
-  // synthesizer or judge with — this is what both pickers let them choose
-  // from, not just the small fixed priority bench above.
-  const modelCandidates = useMemo<ConsensusChoice[]>(() => {
-    const seen = new Set<string>();
-    const list: ConsensusChoice[] = [];
-    for (const model of getEnabledRoutes(settingsSnapshot)) {
-      if (seen.has(model.id)) continue;
-      seen.add(model.id);
-      if (!canUseModelForConsensus(model)) continue;
-      if (!hasProviderAccessForConsensus(model.apiProvider, accessSettings)) continue;
-      list.push({ id: model.id, model });
-    }
-    return list;
-  }, [settingsSnapshot, accessSettings]);
 
   if (!conv) return null;
 
@@ -177,33 +134,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
     conv.threads[modelId]?.messages.some((message) => message.role === "assistant" && message.pending)
   );
 
-  // The user can pick any eligible model as synthesizer; default to the
-  // largest-context auto pick (Gemini comes first since it has a 1M context
-  // window and handles large multi-model transcripts best).
+  // Roles come straight from the plan: the synthesizer is the highest-tier
+  // largest-context model the user actually has access to.
   const modelCandidateIds = new Set(modelCandidates.map((choice) => choice.id));
-  const selectedConsensusModel =
-    consensusChoices[0]?.id ?? modelCandidates[0]?.id ?? "";
+  const selectedConsensusModel = plan.synthesizer ?? "";
   const consensusInfo = getModel(selectedConsensusModel);
   const consensusSource = consensusInfo ? API_PROVIDERS[consensusInfo.apiProvider] : undefined;
 
-  // Auto-build a silent fallback chain: Gemini first (largest context window),
-  // then remaining eligible models sorted by context size descending. The
-  // server will silently try each in order — the user never sees which model
-  // actually ran.
-  const autoFallbackModels = useMemo(
-    () =>
-      consensusChoices
-        .filter((c) => c.id !== selectedConsensusModel)
-        .sort((a, b) => {
-          const aGemini = a.model.apiProvider === "gemini";
-          const bGemini = b.model.apiProvider === "gemini";
-          if (aGemini && !bGemini) return -1;
-          if (!aGemini && bGemini) return 1;
-          return b.model.context - a.model.context;
-        })
-        .map((c) => c.id),
-    [consensusChoices, selectedConsensusModel]
-  );
+  // Provider-diverse backup bench. The server walks it silently on failure,
+  // stall, or context overflow so the user always gets an answer.
+  const autoFallbackModels = plan.synthesizerBackups;
 
   const responses: { model: string; content: string }[] = [];
   const respondingModelIds: string[] = [];
@@ -227,37 +167,11 @@ export function ConsensusButton({ convId }: { convId: string }) {
     }
   }
 
-  // Council debaters: first two available allowlist models, auto-selected
-  // with largest-context (Gemini) models prioritised.
-  const councilPriorityPool = useMemo(
-    () =>
-      [...modelCandidates]
-        .sort((a, b) => {
-          const aGemini = a.model.apiProvider === "gemini";
-          const bGemini = b.model.apiProvider === "gemini";
-          if (aGemini && !bGemini) return -1;
-          if (!aGemini && bGemini) return 1;
-          return b.model.context - a.model.context;
-        })
-        .map((c) => c.id),
-    [modelCandidates]
-  );
-  const defaultDebaterIds = councilPriorityPool.slice(0, 2);
-  const selectedDebaterIds = defaultDebaterIds.filter((id) => modelCandidateIds.has(id));
-  // Every remaining model becomes the silent fallback pool for council — if
-  // a debater or judge fails the server keeps trying down the list.
-  const councilFallbackModels = councilPriorityPool.filter(
-    (id) => !selectedDebaterIds.includes(id)
-  );
-
-  // Default judge panel: two independent judges, preferring non-debaters.
-  const defaultJudgeIds = unique([
-    ...judgeChoiceIds.filter((id) => !selectedDebaterIds.includes(id)),
-    ...councilPriorityPool.filter((id) => !selectedDebaterIds.includes(id)),
-    ...judgeChoiceIds,
-    ...councilPriorityPool,
-  ]).slice(0, 2);
-  const selectedJudgeIds = defaultJudgeIds.filter((id) => modelCandidateIds.has(id));
+  // Council roles from the plan: two provider-diverse debaters, an independent
+  // judge panel kept off the debate floor, and everything else on the bench.
+  const selectedDebaterIds = plan.debaters.filter((id) => modelCandidateIds.has(id));
+  const selectedJudgeIds = plan.judges.filter((id) => modelCandidateIds.has(id));
+  const councilFallbackModels = plan.councilBackups;
 
   const hasAnyResponse = responses.length >= 1;
   const hasConsensusSource = Boolean(
@@ -275,7 +189,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
     : !hasAnyResponse
       ? "Need at least one completed answer"
       : !selectedConsensusModel
-        ? "No eligible consensus model — add a provider key in Settings"
+        ? plan.blockers[0] ?? "No eligible consensus model — add a provider key in Settings"
         : !hasConsensusSource && consensusSource
           ? `Add ${consensusSource.name} key or enable provider`
           : "Consensus unavailable";
@@ -284,7 +198,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
     : !hasAnyResponse
       ? "Need at least one completed answer as debate material"
       : modelCandidates.length < 1
-        ? "No eligible models — add a provider key in Settings"
+        ? plan.blockers[0] ?? "No eligible models — add a provider key in Settings"
         : "Model council unavailable";
 
   const persistConsensus = (content: string) => {
@@ -315,7 +229,10 @@ export function ConsensusButton({ convId }: { convId: string }) {
       return;
     }
     if (mode === "single" && !selectedConsensusModel) {
-      setError("No eligible consensus model is selected. Add a provider key in Settings.");
+      setError(
+        plan.blockers[0] ??
+          "No eligible consensus model is selected. Add a provider key in Settings."
+      );
       return;
     }
     if (mode === "single" && !hasConsensusSource) {
@@ -326,12 +243,13 @@ export function ConsensusButton({ convId }: { convId: string }) {
       );
       return;
     }
-    if (mode === "council" && selectedDebaterIds.length < 2) {
-      setError("Pick two debater models for the council.");
+    // One debater is enough — the server runs it against itself. Zero is not.
+    if (mode === "council" && selectedDebaterIds.length < 1) {
+      setError(plan.blockers[0] ?? "No eligible council models. Add a provider key in Settings.");
       return;
     }
     if (mode === "council" && selectedJudgeIds.length < 1) {
-      setError("Pick a judge model to conclude the council.");
+      setError("No eligible judge model to conclude the council.");
       return;
     }
 
@@ -663,53 +581,6 @@ export function ConsensusButton({ convId }: { convId: string }) {
 }
 
 
-
-function getEligibleChoice(
-  id: string,
-  settings: Parameters<typeof hasProviderAccessForConsensus>[1]
-): ConsensusChoice | null {
-  const model = getModel(id);
-  if (!model) return null;
-  if (!canUseModelForConsensus(model)) return null;
-  if (!hasProviderAccessForConsensus(model.apiProvider, settings)) return null;
-  return { id, model };
-}
-
-function resolvePreferredRoute(
-  preferredId: string,
-  settings: Parameters<typeof hasProviderAccessForConsensus>[1],
-  localModelNames: Set<string>
-): string | null {
-  const cloudFirst = getEligibleChoice(preferredId, settings);
-  if (cloudFirst) return cloudFirst.id;
-
-  if (isCloudOllamaModelId(preferredId)) {
-    const cloudName = getCloudOllamaModelName(preferredId);
-    const localName = findLocalModelName(cloudName, localModelNames);
-    if (localName) {
-      const localId = toOllamaModelId(localName);
-      return getEligibleChoice(localId, settings)?.id ?? null;
-    }
-  }
-
-  return null;
-}
-
-function stripLatest(name: string): string {
-  return name.replace(/:latest$/, "");
-}
-
-function findLocalModelName(cloudModelName: string, localNames: Set<string>): string | null {
-  const normalized = stripLatest(cloudModelName).toLowerCase();
-  if (localNames.has(normalized)) return normalized;
-  if (normalized === "gemma4:31b" && localNames.has("gemma4:31b")) return "gemma4:31b";
-  if (normalized === "nemotron-3-super" && localNames.has("nemotron-3-super")) return "nemotron-3-super";
-  return null;
-}
-
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
 
 function isCouncilRound(value: unknown): value is "opening" | "critique" | "convergence" | "synthesis" {
   return value === "opening" || value === "critique" || value === "convergence" || value === "synthesis";

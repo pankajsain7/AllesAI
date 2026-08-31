@@ -467,6 +467,27 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Rate limits and gateway blips are common and recover in seconds. Burning a
+// backup model on one is wasteful, so retry the same model once before the
+// caller moves down the bench. Auth/not-found/bad-request errors are permanent
+// and fall through immediately.
+function isTransientUpstreamError(err: unknown): boolean {
+  if (!(err instanceof UpstreamError)) return false;
+  return err.status === 429 || err.status === 502 || err.status === 503 || err.status === 504;
+}
+
+const TRANSIENT_RETRY_DELAY_MS = 1_500;
+
+async function withTransientRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isTransientUpstreamError(err)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+    return run();
+  }
+}
+
 // Emits a periodic heartbeat so the client's connection watchdog sees liveness
 // during long non-streaming work (judge scoring) or while the server is waiting
 // for a synthesizer's first token / cycling through fallbacks. Returns a stop
@@ -807,7 +828,7 @@ async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeR
   if (explicitJudges.length > 0) {
     const settled = await Promise.allSettled(
       explicitJudges.map(async (modelId) => {
-        const raw = await generateText(body, modelId, messages);
+        const raw = await withTransientRetry(() => generateText(body, modelId, messages));
         return parseJudge(raw, getModelAlias(modelId));
       })
     );
@@ -905,24 +926,39 @@ async function runSingle(body: RequestBody): Promise<Response> {
     const stopHeartbeat = startHeartbeat(send);
     try {
       for (const modelId of models) {
-        try {
-          const effectiveResponses = truncateResponses(body.responses, contextBudget);
-          const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
-          const { emitted } = await streamTextEvents(send, body, modelId, messages);
-          if (!emitted) {
-            throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
-          }
-          return;
-        } catch (err) {
-          const ue =
-            err instanceof UpstreamError
-              ? err
-              : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
-          lastError = ue;
-          // Shrink context budget for the next attempt when the model rejected
-          // the request due to size, so the fallback has a better chance.
-          if (isContextOverflow(ue)) {
-            contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+        // Retry the same model once on a transient error, but only while it has
+        // not streamed anything yet — retrying mid-answer would duplicate text.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          let sawDelta = false;
+          const trackedSend: SendEvent = (obj) => {
+            if (obj.type === "delta") sawDelta = true;
+            send(obj);
+          };
+          try {
+            const effectiveResponses = truncateResponses(body.responses, contextBudget);
+            const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
+            const { emitted } = await streamTextEvents(trackedSend, body, modelId, messages);
+            if (!emitted) {
+              throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
+            }
+            return;
+          } catch (err) {
+            const ue =
+              err instanceof UpstreamError
+                ? err
+                : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
+            lastError = ue;
+            // Shrink context budget for the next attempt when the model rejected
+            // the request due to size, so the fallback has a better chance.
+            if (isContextOverflow(ue)) {
+              contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+              break; // a smaller context needs a fresh model, not a blind retry
+            }
+            if (attempt === 0 && !sawDelta && isTransientUpstreamError(ue)) {
+              await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+              continue;
+            }
+            break; // permanent failure (or already streamed) — move to the bench
           }
         }
       }
@@ -970,19 +1006,21 @@ async function generateCouncilNote(
   notes: CouncilNote[]
 ): Promise<CouncilNote> {
   const alias = getModelAlias(modelId);
-  const content = await generateText(body, modelId, [
-    { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode)) },
-    {
-      role: "user",
-      content:
-        `You are ${alias}.\n\n` +
-        `Round: ${round.title}\n` +
-        `Your task: ${round.instruction}\n\n` +
-        `${baseBlock}\n\n` +
-        `Previous visible council notes:\n${formatCouncilHistory(notes)}\n\n` +
-        `Respond as ${alias}. Start with "${alias}:". Keep it concise and user-visible.`,
-    },
-  ]);
+  const content = await withTransientRetry(() =>
+    generateText(body, modelId, [
+      { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode)) },
+      {
+        role: "user",
+        content:
+          `You are ${alias}.\n\n` +
+          `Round: ${round.title}\n` +
+          `Your task: ${round.instruction}\n\n` +
+          `${baseBlock}\n\n` +
+          `Previous visible council notes:\n${formatCouncilHistory(notes)}\n\n` +
+          `Respond as ${alias}. Start with "${alias}:". Keep it concise and user-visible.`,
+      },
+    ])
+  );
   if (!content) throw new UpstreamError(`${alias} returned an empty council note.`, 502);
   return { round: round.id, roundTitle: round.title, modelId, alias, content };
 }

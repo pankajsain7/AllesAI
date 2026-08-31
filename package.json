@@ -6,7 +6,10 @@
     "dev": "next dev --webpack -H 127.0.0.1",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:models": "node scripts/check-models.mjs",
+    "check:consensus": "node --import tsx scripts/check-consensus.mjs",
+    "check:consensus:live": "node --import tsx scripts/check-consensus.mjs --live"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -29,6 +32,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   },
   "overrides": {

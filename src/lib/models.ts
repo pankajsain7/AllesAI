@@ -112,19 +112,36 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "27B",
   },
   {
-    // Verified with a live completion request on 2026-08-28. This is Groq's
-    // orchestrated compound route, so do not present it as a single lab model.
-    id: "groq/compound",
-    label: "Groq Compound",
-    shortLabel: "Compound",
-    provider: "custom",
+    id: "qwen/qwen3.6-27b",
+    label: "Qwen 3.6 27B",
+    shortLabel: "Qwen 3.6 27B",
+    provider: "qwen",
     apiProvider: "groq",
-    familyId: "groq-compound",
+    familyId: "qwen3.6-27b",
     free: true,
-    context: 0,
+    context: 131072,
     category: "General",
-    routeHint: "Groq Compound orchestrated route",
-    bestFor: "Complex multi-step requests",
+    thinking: true,
+    routeHint: "Groq hosted Qwen model",
+    bestFor: "Fast reasoning, analysis",
+    paramSize: "27B",
+  },
+  {
+    // Groq retired llama-3.1-8b-instant (404 model_not_found); GPT-OSS 20B is
+    // the closest live fast/small replacement on Groq.
+    id: "openai/gpt-oss-20b",
+    label: "GPT-OSS 20B",
+    shortLabel: "GPT-OSS 20B",
+    provider: "openai",
+    apiProvider: "groq",
+    familyId: "gpt-oss-20b",
+    free: true,
+    context: 131072,
+    category: "General",
+    thinking: true,
+    routeHint: "Groq hosted OpenAI open-weight model",
+    bestFor: "Ultra-fast responses, mobile",
+    paramSize: "20B",
   },
   {
     id: "gemini-3.5-flash",
@@ -186,13 +203,23 @@ export const OPENCODE_KNOWN_MODELS: Record<
     context: 128000,
     thinking: true,
     free: true,
-    bestFor: "Careful reasoning",
+    bestFor: "Careful reasoning (slow: ~20s)",
   },
-  "hy3-free": {
-    label: "HY3 Free",
+  "ling-3.0-flash-fin-free": {
+    label: "Ling 3.0 Flash Fin Free",
+    shortLabel: "Ling 3.0 Flash",
     provider: "opencode",
     category: "General",
-    context: 0,
+    context: 128000,
+    free: true,
+    bestFor: "Very fast general chat",
+  },
+  "laguna-s-2.1-free": {
+    label: "Laguna S 2.1 Free",
+    shortLabel: "Laguna S 2.1",
+    provider: "opencode",
+    category: "General",
+    context: 128000,
     free: true,
     bestFor: "General chat",
   },
@@ -310,6 +337,14 @@ export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
   return uniqueActiveModelNames(modelNames).map(getGeminiExtraModelInfo);
 }
 
+// Imported by default: verified-working Gemini models beyond the core catalog
+// entry, so a user with only a Gemini key still has a consensus backup bench.
+export const DEFAULT_GEMINI_EXTRA_MODEL_IDS = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+];
+
 
 // Pre-defined hosted Ollama models (ollama.com API). They are folded into the
 // same family list as other routes when they refer to the same model.
@@ -328,15 +363,51 @@ export const PRESET_CLOUD_OLLAMA_MODELS: CloudOllamaPreset[] = [
     thinking: true,
   },
   {
-    name: "minimax-m3",
-    label: "MiniMax M3",
-    shortLabel: "MiniMax M3",
-    provider: "minimax",
-    familyId: "minimax-m3",
-    paramSize: "M3",
-    bestFor: "Agentic workflows & reasoning",
-    context: 256000,
+    name: "nemotron-3-super",
+    label: "Nemotron 3 Super",
+    shortLabel: "Nemotron 3 Super",
+    provider: "nvidia",
+    familyId: "nemotron-3-super",
+    paramSize: "Super",
+    bestFor: "Reasoning & analysis",
+    context: 131072,
     category: "Reasoning",
+    thinking: true,
+  },
+  {
+    name: "gpt-oss:120b",
+    label: "GPT-OSS 120B (Ollama)",
+    shortLabel: "GPT-OSS 120B",
+    provider: "openai",
+    familyId: "gpt-oss-120b",
+    paramSize: "120B",
+    bestFor: "Reasoning, agents",
+    context: 131072,
+    category: "Reasoning",
+    thinking: true,
+  },
+  {
+    name: "gpt-oss:20b",
+    label: "GPT-OSS 20B (Ollama)",
+    shortLabel: "GPT-OSS 20B",
+    provider: "openai",
+    familyId: "gpt-oss-20b",
+    paramSize: "20B",
+    bestFor: "Fast general answers",
+    context: 131072,
+    category: "General",
+    thinking: true,
+  },
+  {
+    name: "nemotron-3-nano:30b",
+    label: "Nemotron 3 Nano 30B",
+    shortLabel: "Nemotron 3 Nano",
+    provider: "nvidia",
+    familyId: "nemotron-3-nano-30b",
+    paramSize: "30B",
+    bestFor: "Ultra-fast answers",
+    context: 131072,
+    category: "General",
     thinking: true,
   },
 ];
