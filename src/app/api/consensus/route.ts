@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { getModelAlias } from "@/lib/model-rules";
+import { assertSafeUpstreamUrl } from "@/lib/ssrf";
 
 export const runtime = "nodejs";
+// A three-round council plus judging and synthesis measured 60s+ end to end,
+// well past the 30s serverless default.
+export const maxDuration = 300;
 
 // Hard timeout for non-streaming (judge) calls. Prevents a stalled upstream
 // from blocking the entire consensus run indefinitely.
@@ -45,6 +49,7 @@ const OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions";
 const OPENCODE_PREFIX = "opencode/";
 const OLLAMA_PREFIX = "ollama/";
 const CLOUD_OLLAMA_PREFIX = "ollama-cloud/";
+const CUSTOM_PREFIX = "custom/";
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_CLOUD_OLLAMA_BASE_URL = "https://ollama.com";
 
@@ -95,7 +100,7 @@ type JudgeResult = {
 };
 
 
-type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq";
+type ProviderKey = "gemini" | "ollama" | "ollama-cloud" | "opencode" | "groq" | "custom";
 type QualityMode = "quick" | "deep";
 type CouncilRoundName = "opening" | "critique" | "convergence";
 type CouncilRound = {
@@ -274,10 +279,11 @@ function resolveOllamaBaseUrl(raw?: string) {
 }
 
 function providerFor(modelId: string): ProviderKey {
-  if (modelId.startsWith("gemini")) return "gemini";
   if (modelId.startsWith(CLOUD_OLLAMA_PREFIX)) return "ollama-cloud";
   if (modelId.startsWith(OLLAMA_PREFIX)) return "ollama";
   if (modelId.startsWith(OPENCODE_PREFIX)) return "opencode";
+  if (modelId.startsWith(CUSTOM_PREFIX)) return "custom";
+  if (modelId.startsWith("gemini")) return "gemini";
   return "groq";
 }
 
@@ -368,6 +374,15 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
   const provider = providerFor(modelId);
   const model = modelNameForProvider(modelId);
 
+  if (provider === "custom") {
+    // Custom OpenAI-compatible providers are not wired into consensus. Say so
+    // instead of silently sending the id to Groq, which 404s confusingly.
+    throw new UpstreamError(
+      `${getModelAlias(modelId)} is a custom provider model, which cannot be used for consensus or council.`,
+      400
+    );
+  }
+
   if (provider === "gemini") {
     const key = keyFor(body, modelId);
     if (!key) throw new UpstreamError("No API key. Add your Gemini API key in Settings.", 401);
@@ -395,6 +410,11 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
     const key = keyFor(body, modelId);
     if (provider === "ollama-cloud" && !key) {
       throw new UpstreamError("No Ollama API key. Add OLLAMA_API_KEY to .env.local or Settings.", 401);
+    }
+    try {
+      await assertSafeUpstreamUrl(baseUrl);
+    } catch (err) {
+      throw new UpstreamError(errorMessage(err), 400);
     }
 
     return fetch(`${baseUrl}/api/chat`, {
@@ -1205,6 +1225,52 @@ async function runCouncil(body: RequestBody): Promise<Response> {
   });
 }
 
+// Caps on client-supplied input. Without these a single request can fan out to
+// an unbounded number of upstream calls or pin hundreds of MB in memory.
+const MAX_PROMPT_CHARS = 200_000;
+const MAX_RESPONSES = 32;
+const MAX_RESPONSE_CHARS = 400_000;
+const MAX_MODEL_IDS = 16;
+const MAX_MODEL_ID_CHARS = 200;
+
+function validateModelIdList(value: unknown, field: string): string | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) return `${field} must be an array.`;
+  if (value.length > MAX_MODEL_IDS) return `${field} may contain at most ${MAX_MODEL_IDS} models.`;
+  for (const id of value) {
+    if (typeof id !== "string" || id.length > MAX_MODEL_ID_CHARS) return `${field} contains an invalid model id.`;
+  }
+  return null;
+}
+
+function validateRequestBody(body: RequestBody): string | null {
+  if (typeof body.prompt !== "string" || body.prompt.length > MAX_PROMPT_CHARS) {
+    return `prompt must be a string of at most ${MAX_PROMPT_CHARS} characters.`;
+  }
+  if (body.responses.length > MAX_RESPONSES) {
+    return `responses may contain at most ${MAX_RESPONSES} entries.`;
+  }
+  for (const entry of body.responses) {
+    if (!entry || typeof entry.content !== "string" || typeof entry.model !== "string") {
+      return "each response must have string model and content fields.";
+    }
+    if (entry.content.length > MAX_RESPONSE_CHARS) {
+      return `each response content may be at most ${MAX_RESPONSE_CHARS} characters.`;
+    }
+  }
+  for (const [field, value] of [
+    ["candidateModels", body.candidateModels],
+    ["fallbackModels", body.fallbackModels],
+    ["moderatorModels", body.moderatorModels],
+    ["judgeModels", body.judgeModels],
+    ["judgeFallbackModels", body.judgeFallbackModels],
+  ] as const) {
+    const error = validateModelIdList(value, field);
+    if (error) return error;
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   let body: RequestBody;
   try {
@@ -1216,6 +1282,9 @@ export async function POST(req: NextRequest) {
   if (!body.prompt || !Array.isArray(body.responses) || body.responses.length === 0) {
     return new Response("Missing prompt or responses", { status: 400 });
   }
+
+  const invalid = validateRequestBody(body);
+  if (invalid) return new Response(invalid, { status: 400 });
 
   try {
     return body.mode === "council" ? await runCouncil(body) : await runSingle(body);

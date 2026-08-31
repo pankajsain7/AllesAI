@@ -43,3 +43,6 @@ next-env.d.ts
 # local instructions
 /instructions/commit-rules.md
 
+# one-off audit output
+/scripts/audit-results.json
+

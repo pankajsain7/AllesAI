@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { assertSafeUpstreamUrl } from "@/lib/ssrf";
 
 type CustomModelsResponse = {
   data?: Array<{ id?: string } | string>;
@@ -18,6 +19,11 @@ export async function GET(req: NextRequest) {
 
   const endpoint = resolveModelsEndpoint(baseUrl);
   if (!endpoint) return Response.json({ error: "Invalid base URL." }, { status: 400 });
+  try {
+    await assertSafeUpstreamUrl(endpoint);
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+  }
 
   const apiKey = req.nextUrl.searchParams.get("apiKey") || null;
 

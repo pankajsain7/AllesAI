@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
 import { OPENCODE_KNOWN_MODELS } from "@/lib/models";
+import { assertSafeUpstreamUrl } from "@/lib/ssrf";
+
+export const runtime = "nodejs";
+// Streaming answers from slow models routinely exceed the 30s serverless default.
+export const maxDuration = 120;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -173,6 +178,11 @@ export async function POST(req: NextRequest) {
     const base = provider.baseUrl.trim().replace(/\/+$/, "");
     if (!/^https?:\/\//.test(base)) return new Response("Invalid custom provider base URL.", { status: 400 });
     const endpoint = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`;
+    try {
+      await assertSafeUpstreamUrl(endpoint);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), { status: 400 });
+    }
     const key = provider.apiKey?.trim();
 
     const upstream = await fetch(endpoint, {
@@ -201,6 +211,11 @@ export async function POST(req: NextRequest) {
   if (model.startsWith(OLLAMA_PREFIX)) {
     const baseUrl = resolveOllamaBaseUrl(body.ollamaBaseUrl);
     if (!baseUrl) return new Response("Invalid Ollama base URL.", { status: 400 });
+    try {
+      await assertSafeUpstreamUrl(baseUrl);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), { status: 400 });
+    }
 
     const ollamaModel = model.slice(OLLAMA_PREFIX.length);
     if (!ollamaModel) return new Response("Missing Ollama model name.", { status: 400 });
@@ -539,7 +554,12 @@ export async function POST(req: NextRequest) {
       try {
         // Only include reasoning_effort for models that support it
         const modelInfo = OPENCODE_KNOWN_MODELS[opencodeModel];
-        const requestBody: any = { model: opencodeModel, messages, stream: true };
+        const requestBody: {
+          model: string;
+          messages: ChatMessage[];
+          stream: boolean;
+          reasoning_effort?: string;
+        } = { model: opencodeModel, messages, stream: true };
         if (modelInfo?.thinking) {
           // reasoning_effort asks reasoning-capable models (e.g. DeepSeek V4) to
           // think only as much as the prompt warrants instead of always running
