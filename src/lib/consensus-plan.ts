@@ -161,11 +161,14 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
   });
 
   // The synthesizer reads the entire multi-model transcript, so context window
-  // matters more than raw speed for this one role.
+  // matters more than raw speed for this one role. Latency breaks ties, which
+  // matters because several Gemini models share the same 1M window.
   const synthesizerRanked = [...ranked].sort((a, b) => {
     const tierDelta = tierScore(a.tier) - tierScore(b.tier);
     if (tierDelta !== 0) return tierDelta;
-    return b.model.context - a.model.context;
+    const contextDelta = b.model.context - a.model.context;
+    if (contextDelta !== 0) return contextDelta;
+    return (getConsensusRosterEntry(a.id)?.latencyS ?? 99) - (getConsensusRosterEntry(b.id)?.latencyS ?? 99);
   });
   const synthesizer = synthesizerRanked[0]?.id;
   const synthesizerBackups = diversify(synthesizerRanked.filter((m) => m.id !== synthesizer)).map(

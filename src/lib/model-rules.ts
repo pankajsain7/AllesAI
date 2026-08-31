@@ -31,16 +31,24 @@ export type ConsensusTier = "primary" | "backup";
 
 type RosterEntry = {
   tier: ConsensusTier;
-  /** Typical end-to-end latency in seconds, measured against the live API. */
+  /**
+   * Measured seconds to FIRST TOKEN when streaming, not total completion time.
+   * Synthesis, council verdicts and chat all stream, so first-token latency is
+   * what users feel and what the server's stall watchdog reacts to. Some models
+   * answer fast non-streaming yet stall for seconds before their first streamed
+   * token, so this must be measured against the streaming endpoint.
+   */
   latencyS: number;
 };
 
 export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   // --- Gemini (1M context; best at long multi-model transcripts)
-  "gemini-3.6-flash": { tier: "primary", latencyS: 1.4 },
-  "gemini-3.5-flash": { tier: "primary", latencyS: 0.9 },
-  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.7 },
-  "gemma-4-31b-it": { tier: "backup", latencyS: 1.8 },
+  "gemini-3.5-flash": { tier: "primary", latencyS: 2.4 },
+  "gemini-3.5-flash-lite": { tier: "backup", latencyS: 0.5 },
+  "gemma-4-31b-it": { tier: "backup", latencyS: 1.2 },
+  // Newer than 3.5-flash but 4.6-9.8s to first token when streaming, so it sits
+  // on the bench instead of being auto-selected as synthesizer.
+  "gemini-3.6-flash": { tier: "backup", latencyS: 6 },
 
   // --- Groq (fastest inference)
   "openai/gpt-oss-120b": { tier: "primary", latencyS: 0.3 },
@@ -52,7 +60,8 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "ollama-cloud/nemotron-3-super": { tier: "primary", latencyS: 2.7 },
   "ollama-cloud/gpt-oss:120b": { tier: "backup", latencyS: 1.6 },
 
-  // --- OpenCode Zen (free tier; the safety net when no other key is present)
+  // --- OpenCode Zen (free tier). Backup only: the account-wide free usage cap
+  // returns 429 under sustained load, so these cannot be depended on.
   "opencode/laguna-s-2.1-free": { tier: "backup", latencyS: 0.8 },
   "opencode/big-pickle": { tier: "backup", latencyS: 0.9 },
   "opencode/ling-3.0-flash-fin-free": { tier: "backup", latencyS: 2.2 },

@@ -129,18 +129,21 @@ export const MODEL_CATALOG: ModelInfo[] = [
     paramSize: "20B",
   },
   {
-    id: "gemini-3.6-flash",
-    label: "Gemini 3.6 Flash",
-    shortLabel: "Gemini 3.6 Flash",
+    // Preferred over the newer gemini-3.6-flash: identical 1M context and 65k
+    // output, but 2-4x faster to first token when streaming, which is what
+    // chat and consensus synthesis actually do.
+    id: "gemini-3.5-flash",
+    label: "Gemini 3.5 Flash",
+    shortLabel: "Gemini 3.5 Flash",
     provider: "gemini",
     apiProvider: "gemini",
-    familyId: "gemini-3.6-flash",
+    familyId: "gemini-3.5-flash",
     free: true,
     context: 1048576,
     category: "General",
     vision: true,
     routeHint: "Google Gemini API",
-    bestFor: "Fast, latest generation model",
+    bestFor: "Fast, large-context general model",
   },
   {
     id: "gemma-4-31b-it",
@@ -340,7 +343,7 @@ export function getGeminiExtraModelInfos(modelNames: string[]): ModelInfo[] {
 // catalog entries, so a Gemini-only user still has a consensus backup bench.
 // One model per family generation — older same-family variants are omitted.
 export const DEFAULT_GEMINI_EXTRA_MODEL_IDS = [
-  "gemini-3.5-flash",
+  "gemini-3.6-flash",
   "gemini-3.5-flash-lite",
 ];
 
