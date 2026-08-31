@@ -20,6 +20,7 @@ import {
   getLocalOllamaModelInfo,
   getModel,
   getModelFamilyId,
+  getBedrockModelInfos,
   getOpenCodeModelInfos,
   getCustomProviderModelInfos,
 } from "@/lib/models";
@@ -41,6 +42,7 @@ export function Composer({ convId }: { convId: string }) {
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
+  const bedrockModels = useSettings((s) => s.bedrockModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
   const [text, setText] = useState("");
   const [enhancing, setEnhancing] = useState(false);
@@ -71,10 +73,12 @@ export function Composer({ convId }: { convId: string }) {
       : [];
     const customRoutes = getCustomProviderModelInfos(customProviders);
     const opencodeRoutes = opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : [];
+    const bedrockRoutes = bedrockEnabled ? getBedrockModelInfos(bedrockModels) : [];
     const groqExtraRoutes = groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : [];
 
     const families = buildModelFamilies([
       ...baseRoutes,
+      ...bedrockRoutes,
       ...opencodeRoutes,
       ...groqExtraRoutes,      ...hostedOllamaRoutes,
       ...localRoutes,
@@ -84,6 +88,8 @@ export function Composer({ convId }: { convId: string }) {
     return new Set(families.map((family) => family.familyId));
   }, [
     enabledSettings,
+    bedrockEnabled,
+    bedrockModels,
     cloudOllamaEnabled,
     localEnabled,
     availableLocalModels,

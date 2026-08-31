@@ -11,6 +11,7 @@ import {
   getLocalOllamaModelInfo,
   getModel,
   getModelFamilyId,
+  getBedrockModelInfos,
   getOpenCodeModelInfos,
   isCloudOllamaModelId,
   isOllamaModelId,
@@ -49,6 +50,7 @@ export function ModelPicker({ convId }: { convId: string }) {
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
+  const bedrockModels = useSettings((s) => s.bedrockModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -60,7 +62,7 @@ export function ModelPicker({ convId }: { convId: string }) {
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    [bedrockEnabled, cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
 
   const baseRoutes = useMemo(
@@ -96,6 +98,11 @@ export function ModelPicker({ convId }: { convId: string }) {
     [opencodeEnabled, opencodeModels]
   );
 
+  const bedrockRoutes = useMemo(
+    () => (bedrockEnabled ? getBedrockModelInfos(bedrockModels) : []),
+    [bedrockEnabled, bedrockModels]
+  );
+
   const groqExtraRoutes = useMemo(
     () => (groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : []),
     [groqEnabled, groqExtraModels]
@@ -105,13 +112,14 @@ export function ModelPicker({ convId }: { convId: string }) {
     () =>
       buildModelFamilies([
         ...baseRoutes,
+        ...bedrockRoutes,
         ...opencodeRoutes,
         ...groqExtraRoutes,
         ...hostedOllamaRoutes,
         ...localRoutes,
         ...customRoutes,
       ]),
-    [baseRoutes, opencodeRoutes, groqExtraRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
+    [baseRoutes, bedrockRoutes, opencodeRoutes, groqExtraRoutes, hostedOllamaRoutes, localRoutes, customRoutes]
   );
 
   const availableFamilyIds = useMemo(

@@ -10,6 +10,7 @@ import {
   getGroqExtraModelInfos,
   getLocalOllamaModelInfo,
   getModelFamilyId,
+  getBedrockModelInfos,
   getOpenCodeModelInfos,
   type ModelFamily,
 } from "@/lib/models";
@@ -41,6 +42,7 @@ export function SingleModelPicker({
   const availableLocalModels = useSettings((s) => s.availableLocalModels);
   const customProviders = useSettings((s) => s.customProviders);
   const opencodeModels = useSettings((s) => s.opencodeModels);
+  const bedrockModels = useSettings((s) => s.bedrockModels);
   const groqExtraModels = useSettings((s) => s.groqExtraModels);
 
   const enabledSettings = useMemo<ProviderToggleSettings>(
@@ -62,9 +64,11 @@ export function SingleModelPicker({
       : [];
     const customRoutes = getCustomProviderModelInfos(customProviders);
     const opencodeRoutes = opencodeEnabled ? getOpenCodeModelInfos(opencodeModels) : [];
+    const bedrockRoutes = bedrockEnabled ? getBedrockModelInfos(bedrockModels) : [];
     const groqExtraRoutes = groqEnabled ? getGroqExtraModelInfos(groqExtraModels) : [];
     return buildModelFamilies([
       ...baseRoutes,
+      ...bedrockRoutes,
       ...opencodeRoutes,
       ...groqExtraRoutes,
       ...hostedOllamaRoutes,
@@ -73,6 +77,8 @@ export function SingleModelPicker({
     ]);
   }, [
     enabledSettings,
+    bedrockEnabled,
+    bedrockModels,
     cloudOllamaEnabled,
     localEnabled,
     availableLocalModels,

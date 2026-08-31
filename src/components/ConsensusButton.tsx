@@ -77,7 +77,7 @@ export function ConsensusButton({ convId }: { convId: string }) {
       cloudOllamaEnabled,
       localEnabled,
     }),
-    [cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
+    [bedrockEnabled, cloudOllamaEnabled, groqEnabled, localEnabled, opencodeEnabled]
   );
   const accessSettings = useMemo(
     () => ({

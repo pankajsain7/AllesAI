@@ -61,7 +61,7 @@ check("persist exposes onFinishHydration", typeof useChat.persist?.onFinishHydra
 // Wait for rehydration to settle.
 await new Promise((r) => setTimeout(r, 50));
 // hasHydrated only flips after zustand resolves its own restore, so it is not
-// asserted here — and deliberately not used to gate rendering.
+// asserted here ï¿½ and deliberately not used to gate rendering.
 check(
   "restored the persisted active chat",
   useChat.getState().activeId === "oldA",

@@ -8,7 +8,11 @@ import type { ApiProviderKey } from "./providers";
 // hy3-free: OpenCode Zen now 401s "Model hy3-free is not supported".
 // nemotron-3.5-lightning-free: never returns — times out past 60s on every call.
 const REMOVED_MODEL_TOKENS = [
-  "mis" + "tral",
+  // Retired legacy Mistral routes (mistral-7b, mistral-large-3:675b, ...).
+  // Anchored on the separator so it does not also swallow Bedrock's live
+  // "mistral.ministral-3-14b-instruct", which is a different, working model.
+  "mis" + "tral-",
+  "mis" + "tral:",
   "north-mini-code",
   "north mini code",
   "deepseek-v4-flash-free",
@@ -177,8 +181,14 @@ type ProviderAccessSettings = {
   localEnabled: boolean;
 };
 
+// Bedrock ids are "<vendor>.<model>". The removed-model tokens describe
+// retired routes on other providers, so they must not be matched against a
+// Bedrock id that merely shares a vendor name.
+const BEDROCK_ID = /(^|\/)[a-z0-9]+\.[a-z0-9]/i;
+
 export function isRemovedModelName(value: string): boolean {
   const lower = value.toLowerCase();
+  if (BEDROCK_ID.test(lower)) return false;
   return REMOVED_MODEL_TOKENS.some((token) => lower.includes(token));
 }
 
