@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Merge new Bedrock defaults into already-persisted model lists
+**Changed:** `src/lib/store.ts`, `scripts/check-bedrock-toggle.mjs`
+**Why:** A second machine's Settings showed only 3 imported Bedrock models (missing Ministral 14B) while this browser showed all 4. Settings persist at a fixed version; `migrate()` only ran `bedrockModels ?? DEFAULT_BEDROCK_MODEL_IDS`, so once a user's `bedrockModels` array was persisted (with only 3 ids, from before Ministral was added to the roster), it was never re-filled with defaults added later.
+**Summary:** Bumped settings persistence to version 12 and changed the migration to union the persisted `bedrockModels` with the current `DEFAULT_BEDROCK_MODEL_IDS` instead of only defaulting when unset, so newly-added roster models reach existing users while any extra imported models are kept. Added a regression scenario (v11 state missing Ministral) confirming it's added on migrate without dropping prior imports.
+
 ## [2026-09-01] Fix browser-stored Bedrock credentials in multi-chat
 **Changed:** `src/app/api/chat/multi/route.ts`, `src/app/api/chat/route.ts`, `src/app/api/consensus/route.ts`, `src/lib/chat-client.ts`, `scripts/check-client-key-forwarding.mjs`
 **Why:** Normal chat sent browser credentials to `/api/chat/multi`, but the fan-out route omitted the Bedrock key from its internal `/api/chat` requests. Retrying failures also accumulated empty assistant records that could produce empty Ministral completions.

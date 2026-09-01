@@ -107,7 +107,7 @@ console.log("\n=== Scenario C: existing user, persisted AT version 11 with bedro
         bedrockModels: ["zai.glm-4.7-flash"],
         customProviders: [],
       },
-      version: 11,
+      version: 12,
     })
   );
   const { useSettings } = await import("../src/lib/store.ts?c=" + Date.now());
@@ -117,6 +117,46 @@ console.log("\n=== Scenario C: existing user, persisted AT version 11 with bedro
   check("clicking the toggle turns it on", useSettings.getState().bedrockEnabled === true);
   const persisted = JSON.parse(localStorage.getItem("alles-ai-settings"));
   check("the ON state is actually persisted", persisted.state.bedrockEnabled === true, JSON.stringify(persisted.state.bedrockEnabled));
+}
+
+console.log("\n=== Scenario D: existing user at version 11, missing a model added later (Ministral) ===\n");
+{
+  localStorage.setItem(
+    "alles-ai-settings",
+    JSON.stringify({
+      state: {
+        apiKey: "",
+        groqEnabled: true,
+        opencodeApiKey: "",
+        opencodeEnabled: false,
+        opencodeModels: [],
+        groqExtraModels: [],
+        systemPrompt: "You are a helpful, concise assistant.",
+        webSearch: false,
+        tavilyApiKey: "",
+        compactColumns: false,
+        consensusModel: "bedrock/zai.glm-4.7-flash",
+        saveConsensusToChat: false,
+        localEnabled: false,
+        ollamaBaseUrl: "http://localhost:11434",
+        ollamaApiKey: "",
+        cloudOllamaEnabled: false,
+        ollamaCloudBaseUrl: "https://ollama.com",
+        ollamaCloudModels: [],
+        bedrockApiKey: "ABSKtest=",
+        bedrockEnabled: true,
+        // Persisted before Ministral 14B was added to DEFAULT_BEDROCK_MODEL_IDS.
+        bedrockModels: ["zai.glm-4.7-flash", "moonshotai.kimi-k2.5", "deepseek.v3.2"],
+        customProviders: [],
+      },
+      version: 11,
+    })
+  );
+  const { useSettings } = await import("../src/lib/store.ts?d=" + Date.now());
+  await new Promise((r) => setTimeout(r, 20));
+  const models = useSettings.getState().bedrockModels;
+  check("Ministral 14B is added on migrate to v12", models.includes("mistral.ministral-3-14b-instruct"), JSON.stringify(models));
+  check("previously imported models are kept", models.includes("moonshotai.kimi-k2.5") && models.includes("deepseek.v3.2"));
 }
 
 console.log(failures === 0 ? "\nAll toggle checks passed." : `\n${failures} check(s) failed.`);
