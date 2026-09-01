@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Pointer cursor on the clickable logo
+**Changed:** `src/components/Logo.tsx`
+**Why:** User asked for a hand/pointer cursor on hover over the clickable Alles AI logo.
+**Summary:** Added `cursor-pointer` to the logo's button wrapper.
+
 ## [2026-09-01] Logo click starts a new chat (home screen)
 **Changed:** `src/components/Logo.tsx`, `src/components/Sidebar.tsx`, `src/app/page.tsx`
 **Why:** User asked for clicking the Alles AI logo to open the home screen / new chat, matching common app conventions.
