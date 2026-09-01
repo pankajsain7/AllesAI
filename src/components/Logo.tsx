@@ -13,7 +13,7 @@ export function Logo({ className = "", onClick }: { className?: string; onClick?
   );
   if (!onClick) return img;
   return (
-    <button type="button" onClick={onClick} title="New chat" className="shrink-0">
+    <button type="button" onClick={onClick} title="New chat" className="shrink-0 cursor-pointer">
       {img}
     </button>
   );
