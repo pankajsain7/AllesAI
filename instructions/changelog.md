@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Fix browser-stored Bedrock credentials in multi-chat
+**Changed:** `src/app/api/chat/multi/route.ts`, `src/app/api/chat/route.ts`, `src/app/api/consensus/route.ts`, `src/lib/chat-client.ts`, `scripts/check-client-key-forwarding.mjs`
+**Why:** Normal chat sent browser credentials to `/api/chat/multi`, but the fan-out route omitted the Bedrock key from its internal `/api/chat` requests. Retrying failures also accumulated empty assistant records that could produce empty Ministral completions.
+**Summary:** Multi-chat now forwards `bedrockApiKey` to every internal request, and all Bedrock routes consistently trim browser or environment credentials. API message serialization omits empty history records while retaining failed cards in the UI. The regression check covers direct calls, router calls, multi-chat fan-out, and repeated retries.
+
 ## [2026-08-31] Add Amazon Bedrock provider and remove Gemini entirely
 **Changed:** `src/lib/providers.ts`, `src/lib/models.ts`, `src/lib/model-rules.ts`, `src/lib/consensus-plan.ts`, `src/lib/store.ts`, `src/lib/chat-client.ts`, `src/app/api/chat/route.ts`, `src/app/api/chat/multi/route.ts`, `src/app/api/consensus/route.ts`, `src/app/api/gemini/` (deleted), `src/app/page.tsx`, `src/app/layout.tsx`, `src/components/*`, `scripts/*`, `README.md`
 **Why:** User asked to add Amazon Bedrock with GLM 4.7 Flash, Kimi K2.5, DeepSeek V3.2 and Ministral 14B, verify models can summarise ten long answers, confirm chat and conversation context work, then remove Gemini completely.

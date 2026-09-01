@@ -38,11 +38,11 @@ globalThis.fetch = async (url, opts) => {
   return realFetch(url, opts);
 };
 
-const { useSettings } = await import("../src/lib/store.ts");
+const { useChat, useSettings } = await import("../src/lib/store.ts");
 useSettings.getState().setBedrockApiKey(env.AWS_Bedrock_API_Key);
 useSettings.getState().setOpencodeApiKey(env.OpenCode_API_Key);
 
-const { enhancePrompt, pickBestModels } = await import("../src/lib/chat-client.ts");
+const { enhancePrompt, pickBestModels, streamModel } = await import("../src/lib/chat-client.ts");
 
 console.log("=== enhancePrompt forwards the client Bedrock/OpenCode key ===\n");
 try {
@@ -61,6 +61,46 @@ try {
   console.log("   (ignored):", e.message.slice(0, 60));
 }
 check("router call included bedrockApiKey", lastBody?.bedrockApiKey === env.AWS_Bedrock_API_Key, JSON.stringify(lastBody));
+
+console.log("\n=== retries omit failed empty assistant turns ===\n");
+const modelId = "bedrock/mistral.ministral-3-14b-instruct";
+const convId = useChat.getState().newConversation([modelId]);
+useChat.getState().addUserMessage(convId, "hi", [modelId]);
+for (let attempt = 0; attempt < 2; attempt += 1) {
+  const msgId = useChat.getState().startAssistant(convId, modelId);
+  useChat.getState().failAssistant(convId, modelId, msgId, "failed");
+}
+lastBody = null;
+await streamModel({ convId, modelId });
+check(
+  "request body omitted empty assistant messages",
+  lastBody?.messages?.filter((message) => message.role === "assistant" && !message.content.trim()).length === 0,
+  JSON.stringify(lastBody?.messages)
+);
+
+console.log("\n=== multi-chat forwards the client Bedrock key internally ===\n");
+let forwardedBody = null;
+globalThis.fetch = async (_url, opts) => {
+  forwardedBody = JSON.parse(opts.body);
+  return new Response('{"type":"done"}\n', {
+    status: 200,
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
+};
+const { POST: multiChat } = await import("../src/app/api/chat/multi/route.ts");
+const multiResponse = await multiChat({
+  json: async () => ({
+    items: [{ id: modelId, model: modelId, messages: [{ role: "user", content: "hi" }] }],
+    bedrockApiKey: env.AWS_Bedrock_API_Key,
+  }),
+  nextUrl: new URL("http://localhost/api/chat/multi"),
+  signal: new AbortController().signal,
+});
+await multiResponse.text();
+check(
+  "internal chat request included bedrockApiKey",
+  forwardedBody?.bedrockApiKey === env.AWS_Bedrock_API_Key
+);
 
 globalThis.fetch = realFetch;
 console.log(failures === 0 ? "\nAll key-forwarding checks passed." : `\n${failures} check(s) failed.`);
