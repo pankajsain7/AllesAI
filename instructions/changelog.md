@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Logo click starts a new chat (home screen)
+**Changed:** `src/components/Logo.tsx`, `src/components/Sidebar.tsx`, `src/app/page.tsx`
+**Why:** User asked for clicking the Alles AI logo to open the home screen / new chat, matching common app conventions.
+**Summary:** `Logo` now accepts an optional `onClick` and renders as a button when provided. Both the sidebar logo (desktop) and the header logo (mobile) call `newConversation()` on click, same as the existing "New chat" button.
+
 ## [2026-09-01] Merge new Bedrock defaults into already-persisted model lists
 **Changed:** `src/lib/store.ts`, `scripts/check-bedrock-toggle.mjs`
 **Why:** A second machine's Settings showed only 3 imported Bedrock models (missing Ministral 14B) while this browser showed all 4. Settings persist at a fixed version; `migrate()` only ran `bedrockModels ?? DEFAULT_BEDROCK_MODEL_IDS`, so once a user's `bedrockModels` array was persisted (with only 3 ids, from before Ministral was added to the roster), it was never re-filled with defaults added later.
