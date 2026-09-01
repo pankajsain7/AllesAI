@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Bump version to 2.0.0 for the v2.0.0 release
+**Changed:** `package.json`
+**Why:** User asked to launch a v2.0.0 GitHub release. Since v1.0.0, the app gained Amazon Bedrock as its primary provider (Gemini removed), a consensus/council planner with a verified backup bench, SSRF hardening, custom OpenAI-compatible providers, and numerous UX fixes.
+**Summary:** Bumped `package.json` version from `0.1.0` to `2.0.0` to match the tag. The GitHub repo's About section was also updated separately, and tag `v2.0.0` + a GitHub release were published from this commit.
+
 ## [2026-09-01] Rewrite README for the Bedrock-first provider lineup
 **Changed:** `README.md`
 **Why:** User asked to update the README to reflect the current API providers and highlight Amazon Bedrock. The doc still described the pre-Bedrock, Gemini-era stack (Gemini env var, `/api/gemini/models` route, Gemini in the tech stack/architecture diagram) even though Gemini was removed and Bedrock became the primary provider on 2026-08-31.
