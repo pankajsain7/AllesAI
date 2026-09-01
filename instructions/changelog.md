@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-01] Rewrite README for the Bedrock-first provider lineup
+**Changed:** `README.md`
+**Why:** User asked to update the README to reflect the current API providers and highlight Amazon Bedrock. The doc still described the pre-Bedrock, Gemini-era stack (Gemini env var, `/api/gemini/models` route, Gemini in the tech stack/architecture diagram) even though Gemini was removed and Bedrock became the primary provider on 2026-08-31.
+**Summary:** Added a top-level "API Providers" table (Bedrock/Groq primary, Ollama Cloud/OpenCode backup, Local/Custom optional) and expanded the Bedrock row in "Live Models" with its importable roster and "no AWS console setup" callout. Removed every stale Gemini reference: tech stack, `.env.local` template, "where to get keys" table, architecture diagram, API routes table (dropped `/api/gemini/models`, added a note that Bedrock's browse list is a pre-qualified roster rather than a live proxy), and project structure tree. Added a Bedrock bullet to the Models & Providers feature list. Verified with `npm run build`.
+
 ## [2026-09-01] Pointer cursor on the clickable logo
 **Changed:** `src/components/Logo.tsx`
 **Why:** User asked for a hand/pointer cursor on hover over the clickable Alles AI logo.
