@@ -22,6 +22,7 @@ type MultiItem = {
 type MultiRequestBody = {
   items: MultiItem[];
   apiKey?: string;  opencodeApiKey?: string;
+  bedrockApiKey?: string;
   ollamaBaseUrl?: string;
   ollamaApiKey?: string;
   ollamaCloudBaseUrl?: string;
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const shared = {
     apiKey: body.apiKey,    opencodeApiKey: body.opencodeApiKey,
+    bedrockApiKey: body.bedrockApiKey,
     ollamaBaseUrl: body.ollamaBaseUrl,
     ollamaApiKey: body.ollamaApiKey,
     ollamaCloudBaseUrl: body.ollamaCloudBaseUrl,

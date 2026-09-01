@@ -301,7 +301,14 @@ function modelNameForProvider(modelId: string): string {
 function keyFor(body: RequestBody, modelId: string): string | undefined {
   const provider = providerFor(modelId);
   if (provider === "groq") return body.apiKey || process.env.GROQ_API_KEY;
-  if (provider === "bedrock") return body.bedrockApiKey || process.env.AWS_Bedrock_API_Key || process.env.AWS_BEDROCK_API_KEY;
+  if (provider === "bedrock") {
+    return (
+      body.bedrockApiKey ||
+      process.env.AWS_Bedrock_API_Key ||
+      process.env.AWS_BEDROCK_API_KEY ||
+      process.env.AWS_BEARER_TOKEN_BEDROCK
+    )?.trim();
+  }
   if (provider === "opencode") return body.opencodeApiKey || process.env.OpenCode_API_Key || process.env.OPENCODE_API_KEY;
   return body.ollamaApiKey || process.env.OLLAMA_API_KEY;
 }

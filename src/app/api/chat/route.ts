@@ -421,7 +421,13 @@ export async function POST(req: NextRequest) {
     const bedrockModel = model.slice(BEDROCK_PREFIX.length);
     if (!bedrockModel) return new Response("Missing Bedrock model name.", { status: 400 });
 
-    const bedrockKey = body.bedrockApiKey || process.env.AWS_Bedrock_API_Key || process.env.AWS_BEDROCK_API_KEY;
+    const bedrockKey = (
+      body.bedrockApiKey ||
+      process.env.AWS_Bedrock_API_Key ||
+      process.env.AWS_BEDROCK_API_KEY ||
+      process.env.AWS_BEARER_TOKEN_BEDROCK ||
+      ""
+    ).trim();
     if (!bedrockKey) {
       return new Response("No Amazon Bedrock API key. Add AWS_Bedrock_API_Key to .env.local or Settings.", { status: 401 });
     }

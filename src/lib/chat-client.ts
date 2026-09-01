@@ -121,6 +121,9 @@ function formatChatError(raw: string, status: number, statusText: string, modelI
   }
 
   if (status === 429) return "Rate limited - wait a moment and try again.";
+  if ((status === 401 || status === 403) && isBedrockModelId(modelId)) {
+    return `Amazon Bedrock rejected the request: ${parsed}`;
+  }
   if (status === 401) return "Invalid or missing API key for this model. Check Settings.";
   if (status === 404) return `Model "${modelId}" not found. ${parsed}`;
   if (status === 502 && isOllamaModelId(modelId)) {
@@ -163,7 +166,7 @@ function toApiMessages(
     });
   }
   for (const m of history) {
-    if (m.role === "system") continue;
+    if (m.role === "system" || !m.content.trim()) continue;
     out.push({ role: m.role, content: m.content });
   }
   return out;
