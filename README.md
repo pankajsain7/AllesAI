@@ -9,16 +9,33 @@
 
 ---
 
+## API Providers
+
+| Provider | Role | Notes |
+|---|---|---|
+| 🟠 **Amazon Bedrock** | **Primary** | Project-scoped "mantle" endpoint, single API key, no AWS console setup. Fastest measured time-to-first-token (0.4-0.6s) and the most long-context headroom, so it leads provider priority and is the default consensus synthesizer. |
+| Groq | Primary | Free, very fast open-weight models (GPT-OSS, Qwen) |
+| Ollama Cloud | Backup | Free presets (Gemma 4, Nemotron 3 Super, GPT-OSS 120B) via a free [ollama.com](https://ollama.com) account |
+| OpenCode Zen | Backup | Free-tier models; account-wide rate cap makes them a safety net, not a primary |
+| Local Ollama | Optional | Any model installed on your own machine — no key needed |
+| Custom | Optional | Any OpenAI-compatible endpoint (local or remote) |
+
 ## Live Models
 
 | Model | Provider | API | Context | Capability |
 |---|---|---|---|---|
-| GLM 4.7 Flash | Z.ai | Bedrock | 200K | Fast all-purpose chat |
-| Kimi K2.5 | Moonshot | Bedrock | 256K | Long-context reasoning |
-| DeepSeek V3.2 | DeepSeek | Bedrock | 164K | Code and analysis |
-| Ministral 3 14B | Mistral | Bedrock | 128K | Fast general answers |
+| **GLM 4.7 Flash** | Z.ai | **Bedrock** | 200K | Fast all-purpose chat — default consensus synthesizer |
+| **Kimi K2.5** | Moonshot | **Bedrock** | 256K | Long-context reasoning |
+| **DeepSeek V3.2** | DeepSeek | **Bedrock** | 164K | Code and analysis |
+| **Ministral 3 14B** | Mistral | **Bedrock** | 128K | Fast general answers |
 | GPT-OSS 120B | OpenAI (open-weight) | Groq | 128K | Reasoning, thinking |
 | Qwen 3.8 27B | Qwen / Alibaba | Groq | 128K | All-purpose chat, code, reasoning |
+
+Bedrock uses Amazon's project-scoped "mantle" gateway — one Bedrock API key
+(`ABSK...`) unlocks all four models above, plus more importable via **Settings
+→ Browse models** (e.g. GLM 5, Claude Sonnet 5/Haiku 4.5, Qwen 3 235B, Mistral
+Large 3, Kimi K2 Thinking, GPT-OSS 120B, Gemma 4 31B, MiniMax M2.5, Nemotron
+Super 3). No separate AWS account, IAM role, or console setup required.
 
 Ollama Cloud presets (Gemma 4 31B, Nemotron 3 Super, GPT-OSS 120B) need a free
 [ollama.com](https://ollama.com) account. OpenCode Zen free models are
@@ -32,6 +49,7 @@ with a live request.
 ### Browse & Import More Models
 
 Go to **Settings → Browse models** to import additional models from:
+- **Amazon Bedrock** — GLM 5, Claude, Qwen, Mistral Large, Kimi, GPT-OSS, and more
 - **Groq** — dozens of extra hosted models
 - **OpenCode Zen** — Claude, GPT-5, and more (paid)
 - **Custom** — any OpenAI-compatible endpoint (local or remote)
@@ -134,6 +152,7 @@ exposing an instance to the internet:
 - **Drag to reorder** columns
 
 ### Models & Providers
+- **Amazon Bedrock** — single API key unlocks GLM, Kimi, DeepSeek, Ministral, and more via the project-scoped mantle endpoint
 - **Model picker** — grouped by model family; switch API source per model
 - **Provider toggles** — show only the providers you have keys for
 - **Local Ollama** — discover and chat with models installed on your machine
@@ -165,7 +184,7 @@ exposing an instance to the internet:
 | State | Zustand 5 (with `persist` → localStorage) |
 | Markdown | react-markdown + remark-gfm + rehype-highlight |
 | Language | TypeScript 6 |
-| AI APIs | Groq (SSE), Google Gemini (SSE), Ollama (NDJSON) |
+| AI APIs | Amazon Bedrock (SSE), Groq (SSE), OpenCode Zen (SSE), Ollama (NDJSON) |
 | Search | Tavily MCP |
 
 ---
@@ -187,8 +206,8 @@ Open **http://localhost:3000**, click **Settings**, add your API keys, and start
 Create `.env.local` in the `app/` folder to set server-side fallback keys (visitors without keys can still use the app):
 
 ```env
+AWS_Bedrock_API_Key=ABSK...
 GROQ_API_KEY=gsk_...
-GEMINI_API_KEY=AIza...
 OLLAMA_API_KEY=<ollama.com api key>
 tavilyApiKey=tvly-...
 OpenCode_API_Key=sk-...
@@ -200,8 +219,8 @@ Client-provided keys entered in **Settings** always take priority over `.env.loc
 
 | Provider | Free Tier | Link |
 |---|---|---|
+| **Amazon Bedrock** | ✅ Yes | get key link inside **Settings → Bedrock** |
 | Groq | ✅ Yes | https://console.groq.com |
-| Google Gemini | ✅ Yes | https://aistudio.google.com/api-keys |
 | Ollama Cloud | ✅ Yes (some models need paid) | https://ollama.com |
 | Tavily | ✅ Yes (1000 searches/month) | https://tavily.com |
 | OpenCode Zen | ❌ Paid | https://opencode.ai |
@@ -216,7 +235,7 @@ Browser (Next.js App Router)
   `-- For each selected model:
         POST /api/search ──────────────────────────────► Tavily MCP
                          ◄────────────────────────────── shared source context
-        POST /api/chat ────────────────────────────────► Groq / Gemini / Ollama / Custom
+        POST /api/chat ────────────────────────────────► Bedrock / Groq / Ollama / OpenCode / Custom
                        ◄────────────────────────────────  NDJSON (delta | usage | done | error)
 
   Consensus / Council:
@@ -228,15 +247,19 @@ Browser (Next.js App Router)
 
 | Route | Purpose |
 |---|---|
-| `/api/chat` | Streams responses from Groq, Gemini, Ollama Cloud, Local Ollama, or custom |
+| `/api/chat` | Streams responses from Amazon Bedrock, Groq, OpenCode Zen, Ollama Cloud, Local Ollama, or custom |
 | `/api/chat/multi` | Fans a prompt to multiple models in one request |
 | `/api/consensus` | Synthesizes responses; runs quick or deep council debate |
 | `/api/search` | Tavily MCP proxy for shared web context |
 | `/api/groq/models` | Lists browsable Groq models |
-| `/api/gemini/models` | Lists browsable Gemini models |
 | `/api/ollama/models` | Lists installed local Ollama models |
-| `/api/opencode/models` | Lists OpenCode Zen models |
+| `/api/opencode/models` | Lists browsable OpenCode Zen models |
 | `/api/custom/models` | Lists models from custom providers |
+
+Amazon Bedrock's browsable model list is generated client-side from a
+qualified roster (see [`src/lib/models.ts`](src/lib/models.ts)) rather than a
+live `/models` proxy — the mantle endpoint offers many more models than are
+verified to work, so only pre-qualified ones are offered.
 
 ---
 
@@ -250,12 +273,11 @@ app/
 │   │   ├── layout.tsx              # Root layout + metadata
 │   │   ├── globals.css             # Theme tokens + markdown styles
 │   │   └── api/
-│   │       ├── chat/route.ts       # Streaming proxy → Groq / Gemini / Ollama
+│   │       ├── chat/route.ts       # Streaming proxy → Bedrock / Groq / Ollama / OpenCode / Custom
 │   │       ├── chat/multi/route.ts # Multi-model fan-out
 │   │       ├── consensus/route.ts  # Synthesis + council endpoint
 │   │       ├── search/route.ts     # Tavily MCP proxy
 │   │       ├── groq/models/        # Groq model browser
-│   │       ├── gemini/models/      # Gemini model browser
 │   │       ├── ollama/models/      # Local Ollama discovery
 │   │       ├── opencode/models/    # OpenCode Zen browser
 │   │       └── custom/models/      # Custom provider models
