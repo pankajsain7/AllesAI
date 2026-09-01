@@ -292,7 +292,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 11,
+      version: 12,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -303,7 +303,13 @@ export const useSettings = create<SettingsState>()(
           opencodeModels: sanitizeModelNames(state.opencodeModels ?? DEFAULT_OPENCODE_MODEL_IDS),
           bedrockApiKey: state.bedrockApiKey ?? "",
           bedrockEnabled: state.bedrockEnabled ?? true,
-          bedrockModels: sanitizeModelNames(state.bedrockModels ?? DEFAULT_BEDROCK_MODEL_IDS),
+          // Union with the current defaults so a model added to the roster later
+          // (e.g. Ministral 14B) appears for users who already had Bedrock models
+          // persisted, instead of being frozen at whatever list existed before.
+          bedrockModels: sanitizeModelNames([
+            ...(state.bedrockModels ?? []),
+            ...DEFAULT_BEDROCK_MODEL_IDS,
+          ]),
           groqExtraModels: sanitizeModelNames(state.groqExtraModels ?? []),
           systemPrompt: state.systemPrompt ?? "You are a helpful, concise assistant.",
           webSearch: state.webSearch ?? false,
