@@ -176,7 +176,7 @@ export default function Home() {
         {/* Top bar */}
         <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-soft)] px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2 md:hidden">
-            <Logo />
+            <Logo onClick={() => newConversation()} />
           </div>
           <div className="hidden min-w-0 items-center gap-2 md:flex">
             <div className="flex min-w-0 items-baseline gap-2">

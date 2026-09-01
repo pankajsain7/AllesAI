@@ -84,7 +84,7 @@ export function Sidebar() {
       ) : (
         <>
           <div className="flex items-center justify-between px-3 pb-1 pt-3">
-            <Logo />
+            <Logo onClick={() => newConversation()} />
             <IconButton onClick={() => setCollapsed(true)} title="Collapse sidebar">
               <PanelLeftClose size={15} />
             </IconButton>
