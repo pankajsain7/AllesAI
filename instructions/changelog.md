@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-02] Use PAT-backed native Git publishing
+**Changed:** `instructions/commit-rules.md`
+**Why:** User requested a GitKraken-free publishing workflow using the configured personal access token.
+**Summary:** The publish rules now require native `git` for feature-branch pushes and PowerShell's GitHub REST API client for pull-request creation and merging. The PAT is read from `.env.local` only at runtime, sent exclusively in an authorization header, and must have `repo` scope.
+
 ## [2026-09-02] Organize settings into provider and preference tabs
 **Changed:** `src/components/SettingsDialog.tsx`
 **Why:** Separate provider credentials from consensus and council run preferences so the settings dialog is easier to scan.
