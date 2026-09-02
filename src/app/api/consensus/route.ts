@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getModelAlias } from "@/lib/model-rules";
 import {
+  DEFAULT_CONTEXT_BUDGET,
+  contextBudgetFor,
+  fitAnswers,
+} from "@/lib/answer-budget";
+import {
   CONSENSUS_EFFORT,
   COUNCIL_EFFORT,
   COUNCIL_ROUND_TITLES,
@@ -15,9 +20,18 @@ export const runtime = "nodejs";
 // well past the 30s serverless default.
 export const maxDuration = 300;
 
-// Hard timeout for non-streaming (judge) calls. Prevents a stalled upstream
-// from blocking the entire consensus run indefinitely.
-const GENERATE_TEXT_TIMEOUT_MS = 45_000;
+// Hard timeouts for non-streaming calls. Prevents a stalled upstream from
+// blocking the entire run. A judge reads every answer so it gets longer than a
+// single council note, which is only a few paragraphs.
+const JUDGE_TIMEOUT_MS = 45_000;
+const COUNCIL_NOTE_TIMEOUT_MS = 25_000;
+
+// Output caps. A full-panel judge scorecard (5 criteria + a rationale per
+// model) overruns a small cap, and a truncated scorecard fails to parse and is
+// discarded entirely — so the cap has to clear the worst case comfortably.
+const STREAM_MAX_TOKENS = 8192;
+const JUDGE_MAX_TOKENS = 4096;
+const COUNCIL_NOTE_MAX_TOKENS = 2048;
 
 // Streaming synthesis watchdogs. If the chosen synthesizer/judge produces no
 // first token within FIRST_TOKEN_TIMEOUT, the server aborts it and tries the
@@ -26,16 +40,21 @@ const GENERATE_TEXT_TIMEOUT_MS = 45_000;
 const STREAM_FIRST_TOKEN_TIMEOUT_MS = 40_000;
 const STREAM_IDLE_TIMEOUT_MS = 40_000;
 
+// Bytes are held back until a stream has produced this much, so a model that
+// dies after a handful of tokens can still be replaced by a fallback instead
+// of leaving a truncated stub the caller can no longer retract.
+const STREAM_COMMIT_CHARS = 200;
+
 // While the server is doing non-streaming work (judge scoring) or waiting for
 // the synthesizer's first token, it emits a heartbeat this often so the client
 // connection watchdog sees liveness and does not abort the whole request while
 // the server is still working through its fallback chain.
 const HEARTBEAT_INTERVAL_MS = 12_000;
 
-// Starting context budget (chars) for the Default effort level. Pro and Ultra
-// raise it (see lib/effort.ts). Halved on each 413/context-too-large retry so
-// the synthesizer always gets a response even with many long model answers.
-const INITIAL_CONTEXT_BUDGET = 280_000;
+// Ceiling on the candidate answers handed to a model, before the model's own
+// context window is taken into account. Effort tiers raise it (see
+// lib/effort.ts); it is halved on each 413/context-too-large retry.
+const INITIAL_CONTEXT_BUDGET = DEFAULT_CONTEXT_BUDGET;
 
 // Council debaters only need enough context to understand the topic and debate
 // — they don't need the full synthesizer-level transcript. Keeping this small
@@ -141,8 +160,13 @@ class UpstreamError extends Error {
   }
 }
 
-const MODEL_NAME_RULES = `Refer to sources only by their short model names (e.g. GLM, Kimi, DeepSeek, Ministral, Qwen, Nemotron, GPT).
+// The roster changes as models are added and removed, so the valid names are
+// injected from the run itself rather than hardcoded as a stale example list.
+function modelNameRules(aliases: string[]): string {
+  const list = aliases.length > 0 ? `\nThe only valid names are: ${aliases.join(", ")}.` : "";
+  return `Refer to sources only by their short model names.${list}
 Never write "Model 1", "Model 2", "the first model", or raw model IDs. Never invent names that were not provided.`;
+}
 
 const QUALITY_RUBRIC = `Judge every candidate answer against this rubric before you decide:
 - Correctness: reward claims that are factual, internally consistent, and honest about uncertainty; penalise confident guesses.
@@ -158,6 +182,14 @@ function temporalGrounding(): string {
 Treat that date as true even if it is later than your training data or knowledge cutoff. Never call it a future or fictional date.
 Web search context (Tavily) was provided to all models. Despite having the same web results, some models may ignore them and fall back to outdated training data. Your knowledge cutoff predates the runtime date, so current events in the answers may be unknown to you.
 Compare model answers carefully: responses with specific details, dates, names, or citations likely used the web context and should be weighted more heavily than unsourced assertions or vague denials from models that ignored it. When multiple models correctly report the same web-sourced fact, that is strong corroboration. When only a minority correctly reports a fact that has the specificity of a web citation, prefer it over the majority. Do not claim that you independently verified a citation: you can only assess the evidence shown here.`;
+}
+
+// Debaters argue a position rather than weigh sources, so they only need the
+// date anchor — not the full evidence-weighting briefing the judge gets. This
+// is injected into every debater turn, so the saved tokens compound.
+function temporalGroundingBrief(): string {
+  const currentDate = new Date().toISOString().slice(0, 10);
+  return `The authoritative runtime date is ${currentDate}. Treat it as true even if it is later than your knowledge cutoff, and never call it a future or fictional date. Where web search context is supplied, prefer it over facts you recall.`;
 }
 
 const QUICK_SECTIONS = `First output the synthesized answer. Then output "---" on its own line. Then output these analysis sections:
@@ -179,7 +211,7 @@ const DEEP_SECTIONS = `First output the synthesized answer. Then output "---" on
 **Missing context**
 **Model notes**`;
 
-function synthesisPrompt(mode: QualityMode, solo: boolean, hasJudge: boolean): string {
+function synthesisPrompt(mode: QualityMode, solo: boolean, hasJudge: boolean, aliases: string[]): string {
   const deepInstruction =
     mode === "deep"
       ? `Deep answer mode is enabled. Claim-check the most important statements against only the supplied answers, flag unsupported or conflicting claims, and explain precisely why the winning answer beat the alternatives.`
@@ -200,7 +232,7 @@ Then synthesize: resolve conflicts on the merits — not by majority vote — an
       : selfJudgeBlock;
 
   return `${roleBlock}
-${MODEL_NAME_RULES}
+${modelNameRules(aliases)}
 ${temporalGrounding()}
 ${QUALITY_RUBRIC}
 ${deepInstruction}
@@ -220,7 +252,7 @@ function councilPositionPrompt(mode: QualityMode, debaterCount: number): string 
       : `You are one of ${debaterCount} expert models debating to reach the single best answer for the user. Engage with the other models individually — never lump them together as "the others".`;
 
   return `${roster}
-${temporalGrounding()}
+${temporalGroundingBrief()}
 Refer to yourself and the other models only by short model names.
 This is a real debate: talk directly TO the other models, respond to their specific points, and clarify precisely where and why you disagree. Do not talk past each other.
 Write visible public debate notes for the user — clear, concrete, and defensible. Never include hidden chain-of-thought or private scratch reasoning; state conclusions and the evidence for them.
@@ -230,7 +262,12 @@ ${deepInstruction}
 Do not declare a final winner or write the final answer — the judge does that after the debate.`;
 }
 
-function councilSynthesisPrompt(mode: QualityMode, debaterCount: number): string {
+function councilSynthesisPrompt(
+  mode: QualityMode,
+  debaterCount: number,
+  aliases: string[],
+  wasDebater: boolean
+): string {
   const deepInstruction =
     mode === "deep"
       ? `Deep mode: claim-check the key statements from the debate and explain precisely why your verdict beats the losing position.`
@@ -241,8 +278,15 @@ function councilSynthesisPrompt(mode: QualityMode, debaterCount: number): string
       ? "a two-model debate"
       : `a ${debaterCount}-model debate`;
 
-  return `You are the impartial JUDGE of ${roster}. You did not debate; your job is to read every model's arguments across all rounds and deliver the single best final answer for the user.
-${MODEL_NAME_RULES}
+  // Every independent moderator can fail, in which case a debater is promoted
+  // to judge. Claiming "you did not debate" at that point would be false and
+  // invites the model to quietly favour its own position.
+  const standing = wasDebater
+    ? "You argued in this debate yourself. Set your own position aside and rule strictly on the merits — treat your own arguments with more suspicion than the others', not less."
+    : "You did not debate;";
+
+  return `You are the impartial JUDGE of ${roster}. ${standing} your job is to read every model's arguments across all rounds and deliver the single best final answer for the user.
+${modelNameRules(aliases)}
 ${temporalGrounding()}
 Read the full debate, the original answers, and any judge scorecard. Decide each disputed point ON THE MERITS — not by splitting the difference, not by majority vote, and not by favouring the more confident or more verbose model. If EVERY debater was wrong or missed something, correct it yourself.
 Explicitly resolve the points the debaters left disputed: say which side was right and why, citing the evidence.
@@ -356,25 +400,23 @@ function shortResponses(responses: ResponseEntry[]): ResponseEntry[] {
   }));
 }
 
-function truncateResponses(responses: ResponseEntry[], maxTotalChars = INITIAL_CONTEXT_BUDGET): ResponseEntry[] {
-  const maxPerResponse = Math.max(1, Math.floor(maxTotalChars / Math.max(1, responses.length)));
-  return responses.map((response) => ({
-    ...response,
-    content:
-      response.content.length > maxPerResponse
-        ? response.content.slice(0, maxPerResponse) + "\n...[truncated]"
-        : response.content,
-  }));
+/** The short names the models are allowed to use for each other in this run. */
+function aliasesOf(responses: ResponseEntry[]): string[] {
+  return unique(responses.map((response) => getModelAlias(response.model)));
 }
 
+const truncateResponses = fitAnswers;
+
+// Formats only. Callers must pass responses already fitted to the target
+// model's budget — truncating here too silently capped every caller at the
+// default budget, which made the Pro and Ultra context tiers do nothing.
 function formatResponseBlock(prompt: string, responses: ResponseEntry[], webSearch?: boolean): string {
   const parts: string[] = [
     `User question:\n${prompt}`,
     "",
     webSearch ? "Web search context (Tavily) was provided to all models. Some models may still ignore it and fall back to outdated training data — evaluate carefully which responses actually used the web results." : "",
-    webSearch ? "" : "",
     "Model answers:",
-    ...truncateResponses(shortResponses(responses)).map(
+    ...shortResponses(responses).map(
       (response) => `\n--- ${response.model} ---\n${response.content || "(empty)"}`
     ),
   ];
@@ -395,9 +437,38 @@ async function readError(upstream: Response, fallback: string): Promise<string> 
   return raw;
 }
 
-async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatMessage[], stream: boolean, signal?: AbortSignal) {
+// Providers that returned a hard credential error during this run, keyed by
+// the request body object so the state dies with the request. Without it a
+// revoked key is rediscovered once per model on the bench, burning a full
+// timeout each time while the user waits for a run that cannot succeed.
+const blockedProviders = new WeakMap<RequestBody, Map<ProviderKey, string>>();
+
+function recordUpstreamFailure(body: RequestBody, modelId: string, status: number, message: string) {
+  // 404 is model-specific (bad id), not provider-wide, so it must not trip.
+  if (status !== 401 && status !== 403) return;
+  const blocked = blockedProviders.get(body) ?? new Map<ProviderKey, string>();
+  blocked.set(providerFor(modelId), message);
+  blockedProviders.set(body, blocked);
+}
+
+function blockedReason(body: RequestBody, modelId: string): string | undefined {
+  return blockedProviders.get(body)?.get(providerFor(modelId));
+}
+
+async function fetchUpstream(
+  body: RequestBody,
+  modelId: string,
+  messages: ChatMessage[],
+  stream: boolean,
+  signal?: AbortSignal,
+  maxTokens?: number
+) {
   const provider = providerFor(modelId);
   const model = modelNameForProvider(modelId);
+  const maxOutputTokens = maxTokens ?? (stream ? STREAM_MAX_TOKENS : JUDGE_MAX_TOKENS);
+
+  const blocked = blockedReason(body, modelId);
+  if (blocked) throw new UpstreamError(blocked, 401);
 
   if (provider === "custom") {
     // Custom OpenAI-compatible providers are not wired into consensus. Say so
@@ -447,7 +518,7 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
     return fetch(BEDROCK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": key },
-      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: stream ? 8192 : 1200, stream }),
+      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: maxOutputTokens, stream }),
       ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`Amazon Bedrock is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
@@ -460,7 +531,7 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
     return fetch(OPENCODE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: stream ? 8192 : 1200, stream }),
+      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: maxOutputTokens, stream }),
       ...(signal ? { signal } : {}),
     }).catch((err: unknown) => {
       throw new UpstreamError(`OpenCode Zen is unreachable. ${err instanceof Error ? err.message : String(err)}`, 502);
@@ -476,7 +547,7 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
       model,
       messages,
       temperature: 0.3,
-      max_tokens: stream ? 8192 : 1200,
+      max_tokens: maxOutputTokens,
       stream,
     }),
     ...(signal ? { signal } : {}),
@@ -485,12 +556,19 @@ async function fetchUpstream(body: RequestBody, modelId: string, messages: ChatM
   });
 }
 
-async function generateText(body: RequestBody, modelId: string, messages: ChatMessage[]): Promise<string> {
+async function generateText(
+  body: RequestBody,
+  modelId: string,
+  messages: ChatMessage[],
+  options: { maxTokens?: number; timeoutMs?: number } = {}
+): Promise<string> {
   // Non-streaming calls (judges, council notes) must not hang forever.
-  const signal = AbortSignal.timeout(GENERATE_TEXT_TIMEOUT_MS);
-  const upstream = await fetchUpstream(body, modelId, messages, false, signal);
+  const signal = AbortSignal.timeout(options.timeoutMs ?? JUDGE_TIMEOUT_MS);
+  const upstream = await fetchUpstream(body, modelId, messages, false, signal, options.maxTokens);
   if (upstream.status !== 200) {
-    throw new UpstreamError(await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`), upstream.status);
+    const message = await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`);
+    recordUpstreamFailure(body, modelId, upstream.status, message);
+    throw new UpstreamError(message, upstream.status);
   }
 
   const provider = providerFor(modelId);
@@ -540,12 +618,17 @@ function createNdjsonResponse(handler: (send: SendEvent) => Promise<void>): Resp
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send: SendEvent = (obj) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      // Covers every silent phase of a run — council debate rounds, judge
+      // scoring, and waiting on a synthesizer's first token — so the client's
+      // stall watchdog never aborts a run that is still healthy.
+      const stopHeartbeat = startHeartbeat(send);
 
       try {
         await handler(send);
       } catch (err: unknown) {
         send({ type: "error", message: errorMessage(err) });
       } finally {
+        stopHeartbeat();
         send({ type: "done" });
         controller.close();
       }
@@ -566,7 +649,9 @@ async function openStreamingUpstream(body: RequestBody, modelId: string, message
   if (upstream.status !== 200) {
     // Preserve the HTTP status so runSingle can detect context-overflow (413)
     // and retry with a smaller context budget instead of surfacing an error.
-    throw new UpstreamError(await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`), upstream.status);
+    const message = await readError(upstream, `${getModelAlias(modelId)} returned HTTP ${upstream.status}`);
+    recordUpstreamFailure(body, modelId, upstream.status, message);
+    throw new UpstreamError(message, upstream.status);
   }
   if (!upstream.body) throw new UpstreamError("No upstream body", 502);
 
@@ -637,9 +722,10 @@ async function pipeStreamingText(
 // Streams a model's answer with a server-side stall watchdog. If no first
 // token arrives within STREAM_FIRST_TOKEN_TIMEOUT_MS (or the stream goes idle
 // mid-answer), the upstream is aborted so the caller can try the next fallback
-// model. Returns whether any content was emitted: once bytes have reached the
-// client, a later failure is swallowed (partial answer beats duplicating it
-// with a fallback), so callers should only fall back when emitted is false.
+// model. The first STREAM_COMMIT_CHARS are held back: until the stream has
+// proven it can produce a real answer nothing reaches the client, so a model
+// that dies after a few tokens is replaced rather than leaving a stub. Returns
+// whether any content was committed — callers only fall back when it is false.
 async function streamTextEvents(
   send: SendEvent,
   body: RequestBody,
@@ -647,27 +733,43 @@ async function streamTextEvents(
   messages: ChatMessage[]
 ): Promise<{ emitted: boolean }> {
   const controller = new AbortController();
-  let emitted = false;
+  let committed = false;
+  let held = "";
   let timer: ReturnType<typeof setTimeout> | null = null;
   const arm = (ms: number) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => controller.abort(), ms);
   };
 
+  const commit = () => {
+    if (!held) return;
+    send({ type: "delta", text: held });
+    held = "";
+    committed = true;
+  };
+
+  const gatedSend: SendEvent = (event) => {
+    if (event.type !== "delta" || committed) {
+      send(event);
+      return;
+    }
+    held += typeof event.text === "string" ? event.text : "";
+    if (held.length >= STREAM_COMMIT_CHARS) commit();
+  };
+
   arm(STREAM_FIRST_TOKEN_TIMEOUT_MS);
   try {
     const opened = await openStreamingUpstream(body, modelId, messages, controller.signal);
-    await pipeStreamingText(send, opened, () => {
-      emitted = true;
-      arm(STREAM_IDLE_TIMEOUT_MS);
-    });
-    return { emitted };
+    await pipeStreamingText(gatedSend, opened, () => arm(STREAM_IDLE_TIMEOUT_MS));
+    commit(); // a short but complete answer still counts
+    return { emitted: committed };
   } catch (err) {
-    if (emitted) {
+    if (committed) {
       // Partial content already streamed to the user — don't fall back or it
       // would duplicate the answer. Treat as a completed (if truncated) result.
-      return { emitted };
+      return { emitted: true };
     }
+    held = ""; // nothing reached the client, so a fallback can take over cleanly
     if (controller.signal.aborted) {
       throw new UpstreamError(`${getModelAlias(modelId)} produced no output before timeout.`, 504);
     }
@@ -677,9 +779,9 @@ async function streamTextEvents(
   }
 }
 
-function judgePrompt(): string {
+function judgePrompt(aliases: string[]): string {
   return `You are a strict, impartial evaluation judge scoring a panel of AI answers to the same question. You do not write your own answer.
-${MODEL_NAME_RULES}
+${modelNameRules(aliases)}
 ${temporalGrounding()}
 Score each answer independently on a 0-10 integer scale for these criteria:
 - accuracy: factual correctness and internal consistency.
@@ -689,14 +791,19 @@ Score each answer independently on a 0-10 integer scale for these criteria:
 - citations: use of the supplied web context / verifiable specifics (score 0 if none were needed and none given).
 Reward answers grounded in evidence; penalise confident but unsupported claims. Do not favour length. Be discriminating — avoid giving every answer the same score.
 Set "overall" as your holistic 0-10 rating (not necessarily the average). Pick the single best answer as "winner". Set "confidence" to how sure you are the winner is genuinely best.
+Emit exactly one ranking row per name listed above, copying each name character-for-character. Keep every rationale to one short sentence so the JSON stays complete.
 Return ONLY valid minified JSON — no markdown, no code fences, no commentary — exactly matching this shape:
 {"rankings":[{"model":"<short name>","scores":{"accuracy":0,"relevance":0,"completeness":0,"clarity":0,"citations":0},"overall":0,"rationale":"one concise sentence"}],"winner":"<short name>","confidence":"high|medium|low"}`;
 }
 
-function judgeMessages(body: RequestBody): ChatMessage[] {
+function judgeMessages(body: RequestBody, modelId: string): ChatMessage[] {
+  const budget = contextBudgetFor(modelId, INITIAL_CONTEXT_BUDGET);
   return [
-    { role: "system", content: judgePrompt() },
-    { role: "user", content: formatResponseBlock(body.prompt, body.responses, body.webSearch) },
+    { role: "system", content: judgePrompt(aliasesOf(body.responses)) },
+    {
+      role: "user",
+      content: formatResponseBlock(body.prompt, truncateResponses(body.responses, budget), body.webSearch),
+    },
   ];
 }
 
@@ -706,7 +813,24 @@ function clampScore(value: unknown): number | undefined {
   return Math.max(0, Math.min(10, Math.round(num * 10) / 10));
 }
 
-function parseJudge(raw: string, model: string): JudgeResult | null {
+// Judges write the candidate name themselves, so one may return "GPT" where
+// another returns "GPT-OSS". Merging keys on that string, so an unmapped
+// variant silently splits one candidate into two half-sampled rows and splits
+// the winner vote. Map every returned name back onto the known roster.
+function matchAlias(name: string, known: string[]): string {
+  const needle = name.trim();
+  const lower = needle.toLowerCase();
+  const exact = known.find((alias) => alias.toLowerCase() === lower);
+  if (exact) return exact;
+  const prefix = known.find((alias) => {
+    const other = alias.toLowerCase();
+    return other.startsWith(lower) || lower.startsWith(other);
+  });
+  if (prefix) return prefix;
+  return known.find((alias) => lower.includes(alias.toLowerCase())) ?? needle;
+}
+
+function parseJudge(raw: string, model: string, known: string[]): JudgeResult | null {
   if (!raw) return null;
   const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -722,9 +846,13 @@ function parseJudge(raw: string, model: string): JudgeResult | null {
   if (!Array.isArray(obj.rankings)) return null;
 
   const rankings: JudgeRanking[] = [];
+  const seen = new Set<string>();
   for (const entry of obj.rankings) {
     const row = entry as { model?: unknown; scores?: unknown; overall?: unknown; rationale?: unknown };
     if (typeof row.model !== "string" || !row.model.trim()) continue;
+    const name = matchAlias(row.model, known);
+    if (seen.has(name)) continue;
+    seen.add(name);
     const scores: Partial<Record<JudgeCriterion, number>> = {};
     const rawScores = (row.scores ?? {}) as Record<string, unknown>;
     for (const criterion of JUDGE_CRITERIA) {
@@ -732,7 +860,7 @@ function parseJudge(raw: string, model: string): JudgeResult | null {
       if (score !== undefined) scores[criterion] = score;
     }
     rankings.push({
-      model: row.model.trim(),
+      model: name,
       ...(Object.keys(scores).length > 0 ? { scores } : {}),
       ...(clampScore(row.overall) !== undefined ? { overall: clampScore(row.overall) } : {}),
       ...(typeof row.rationale === "string" && row.rationale.trim()
@@ -750,7 +878,9 @@ function parseJudge(raw: string, model: string): JudgeResult | null {
   return {
     model,
     rankings,
-    ...(typeof obj.winner === "string" && obj.winner.trim() ? { winner: obj.winner.trim() } : {}),
+    ...(typeof obj.winner === "string" && obj.winner.trim()
+      ? { winner: matchAlias(obj.winner, known) }
+      : {}),
     ...(confidence ? { confidence } : {}),
   };
 }
@@ -855,14 +985,16 @@ function mergeJudgeResults(results: JudgeResult[]): JudgeResult {
 // proceeds anyway.
 async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeResult | null> {
   if (body.responses.length === 0) return null;
-  const messages = judgeMessages(body);
+  const known = aliasesOf(body.responses);
 
   const explicitJudges = unique(body.judgeModels ?? []).slice(0, 3);
   if (explicitJudges.length > 0) {
     const settled = await Promise.allSettled(
       explicitJudges.map(async (modelId) => {
-        const raw = await withTransientRetry(() => generateText(body, modelId, messages));
-        return parseJudge(raw, getModelAlias(modelId));
+        const raw = await withTransientRetry(() =>
+          generateText(body, modelId, judgeMessages(body, modelId), { maxTokens: JUDGE_MAX_TOKENS })
+        );
+        return parseJudge(raw, getModelAlias(modelId), known);
       })
     );
     const parsedJudges = settled
@@ -902,8 +1034,10 @@ async function maybeRunJudge(send: SendEvent, body: RequestBody): Promise<JudgeR
 
   for (const modelId of judgeModels) {
     try {
-      const raw = await generateText(body, modelId, messages);
-      const parsed = parseJudge(raw, getModelAlias(modelId));
+      const raw = await generateText(body, modelId, judgeMessages(body, modelId), {
+        maxTokens: JUDGE_MAX_TOKENS,
+      });
+      const parsed = parseJudge(raw, getModelAlias(modelId), known);
       if (parsed) {
         send({
           type: "judge",
@@ -929,7 +1063,7 @@ function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMe
   const systemContent =
     body.mode === "super"
       ? superSynthesisPrompt()
-      : synthesisPrompt(qualityModeFor(body.qualityMode), solo, Boolean(judge));
+      : synthesisPrompt(qualityModeFor(body.qualityMode), solo, Boolean(judge), aliasesOf(body.responses));
   return [
     { role: "system", content: systemContent },
     { role: "user", content },
@@ -957,55 +1091,52 @@ async function runSingle(body: RequestBody): Promise<Response> {
     let contextBudget = effort.contextBudget;
     let lastError: UpstreamError | null = null;
 
-    // Keep the connection alive while we wait for the first token / fall back.
-    const stopHeartbeat = startHeartbeat(send);
-    try {
-      // Judge scoring is advisory: if every judge fails we still synthesize.
-      // Requires an explicit panel — without one maybeRunJudge would fall back
-      // to the synthesizer itself, which is self-assessment, not an independent
-      // second opinion.
-      const hasJudgePanel = unique(body.judgeModels ?? []).length > 0;
-      const judge = effort.judges > 0 && hasJudgePanel ? await maybeRunJudge(send, body) : null;
+    // Judge scoring is advisory: if every judge fails we still synthesize.
+    // Requires an explicit panel — without one maybeRunJudge would fall back
+    // to the synthesizer itself, which is self-assessment, not an independent
+    // second opinion.
+    const hasJudgePanel = unique(body.judgeModels ?? []).length > 0;
+    const judge = effort.judges > 0 && hasJudgePanel ? await maybeRunJudge(send, body) : null;
 
-      for (const modelId of models) {
-        // Retry the same model once on a transient error, but only while it has
-        // not streamed anything yet — retrying mid-answer would duplicate text.
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          let sawDelta = false;
-          const trackedSend: SendEvent = (obj) => {
-            if (obj.type === "delta") sawDelta = true;
-            send(obj);
-          };
-          try {
-            const effectiveResponses = truncateResponses(body.responses, contextBudget);
-            const messages = synthesisMessages({ ...body, responses: effectiveResponses }, judge);
-            const { emitted } = await streamTextEvents(trackedSend, body, modelId, messages);
-            if (!emitted) {
-              throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
-            }
-            return;
-          } catch (err) {
-            const ue =
-              err instanceof UpstreamError
-                ? err
-                : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
-            lastError = ue;
-            // Shrink context budget for the next attempt when the model rejected
-            // the request due to size, so the fallback has a better chance.
-            if (isContextOverflow(ue)) {
-              contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
-              break; // a smaller context needs a fresh model, not a blind retry
-            }
-            if (attempt === 0 && !sawDelta && isTransientUpstreamError(ue)) {
-              await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
-              continue;
-            }
-            break; // permanent failure (or already streamed) — move to the bench
+    for (const modelId of models) {
+      // Retry the same model once on a transient error, but only while it has
+      // not streamed anything yet — retrying mid-answer would duplicate text.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        let sawDelta = false;
+        const trackedSend: SendEvent = (obj) => {
+          if (obj.type === "delta") sawDelta = true;
+          send(obj);
+        };
+        try {
+          const effectiveResponses = truncateResponses(
+            body.responses,
+            contextBudgetFor(modelId, contextBudget)
+          );
+          const messages = synthesisMessages({ ...body, responses: effectiveResponses }, judge);
+          const { emitted } = await streamTextEvents(trackedSend, body, modelId, messages);
+          if (!emitted) {
+            throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
           }
+          return;
+        } catch (err) {
+          const ue =
+            err instanceof UpstreamError
+              ? err
+              : new UpstreamError(err instanceof Error ? err.message : String(err), 502);
+          lastError = ue;
+          // Shrink context budget for the next attempt when the model rejected
+          // the request due to size, so the fallback has a better chance.
+          if (isContextOverflow(ue)) {
+            contextBudget = Math.max(40_000, Math.floor(contextBudget / 2));
+            break; // a smaller context needs a fresh model, not a blind retry
+          }
+          if (attempt === 0 && !sawDelta && isTransientUpstreamError(ue)) {
+            await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+            continue;
+          }
+          break; // permanent failure (or already streamed) — move to the bench
         }
       }
-    } finally {
-      stopHeartbeat();
     }
 
     throw lastError ?? new UpstreamError("Consensus failed.", 502);
@@ -1051,19 +1182,24 @@ async function generateCouncilNote(
 ): Promise<CouncilNote> {
   const alias = getModelAlias(modelId);
   const content = await withTransientRetry(() =>
-    generateText(body, modelId, [
-      { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode), debaterCount) },
-      {
-        role: "user",
-        content:
-          `You are ${alias}.\n\n` +
-          `Round: ${round.title}\n` +
-          `Your task: ${round.instruction}\n\n` +
-          `${baseBlock}\n\n` +
-          `Previous visible council notes:\n${formatCouncilHistory(notes, historyCap)}\n\n` +
-          `Respond as ${alias}. Start with "${alias}:". Keep it concise and user-visible.`,
-      },
-    ])
+    generateText(
+      body,
+      modelId,
+      [
+        { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode), debaterCount) },
+        {
+          role: "user",
+          content:
+            `You are ${alias}.\n\n` +
+            `Round: ${round.title}\n` +
+            `Your task: ${round.instruction}\n\n` +
+            `${baseBlock}\n\n` +
+            `Previous visible council notes:\n${formatCouncilHistory(notes, historyCap)}\n\n` +
+            `Respond as ${alias}. Keep it concise and user-visible.`,
+        },
+      ],
+      { maxTokens: COUNCIL_NOTE_MAX_TOKENS, timeoutMs: COUNCIL_NOTE_TIMEOUT_MS }
+    )
   );
   if (!content) throw new UpstreamError(`${alias} returned an empty council note.`, 502);
   return { round: round.id, roundTitle: round.title, modelId, alias, content };
@@ -1077,6 +1213,17 @@ function stripModelPrefix(content: string, modelName: string): string {
     return content.trimStart().slice(prefix.length).trimStart();
   }
   return content;
+}
+
+// A replacement joins mid-debate, so a round instruction like "defend the
+// claims you were critiqued on" is incoherent for it — it never made any.
+// Give it the opening brief plus the context of where the debate stands.
+function replacementRound(round: CouncilRound): CouncilRound {
+  if (round.id === "opening") return round;
+  return {
+    ...round,
+    instruction: `${COUNCIL_ROUND_INSTRUCTIONS.opening}\n\nYou are joining late, replacing a model that dropped out, so you have no earlier notes of your own. Read the debate so far and take a clear position on the points still disputed.`,
+  };
 }
 
 // Moderator tries the explicitly chosen judge models first, then silently
@@ -1181,7 +1328,7 @@ async function runCouncil(body: RequestBody): Promise<Response> {
             replacementNote = await generateCouncilNote(
               body,
               fallback,
-              round,
+              replacementRound(round),
               baseBlock,
               allNotes,
               participants.length,
@@ -1214,10 +1361,6 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       }
     }
 
-    // Judge scoring is a non-streaming call that can take tens of seconds with a
-    // full Ultra panel, so the heartbeat has to cover it too — otherwise the
-    // client's stall watchdog can abort a run that is still healthy.
-    const stopHeartbeat = startHeartbeat(send);
     const judge = await maybeRunJudge(send, body);
     const synthesisBaseBlock = formatResponseBlock(
       body.prompt,
@@ -1240,34 +1383,52 @@ async function runCouncil(body: RequestBody): Promise<Response> {
     ].join("\n");
 
     send({ type: "round_start", round: "synthesis", title: "Judge's verdict" });
+    const debaterAliases = unique(allNotes.map((note) => note.alias));
     let lastError: UpstreamError | null = null;
-    // The heartbeat started before judging is still running, and keeps the
-    // connection alive through the moderator fallback chain too.
-    try {
-      for (const modelId of moderatorModelIds(body, participants)) {
-        try {
-          sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
-          const { emitted } = await streamTextEvents(send, body, modelId, [
-            {
-              role: "system",
-              content: councilSynthesisPrompt(qualityModeFor(body.qualityMode), participants.length),
-            },
-            { role: "user", content: councilBlock },
-          ]);
-          if (!emitted) {
-            // Upstream closed without producing any verdict text — treat as a
-            // failure so the next moderator fallback gets a turn.
-            throw new UpstreamError(`${getModelAlias(modelId)} returned an empty verdict.`, 502);
-          }
-          sendCouncilStatus(send, modelId, "done", "synthesis", "Verdict complete");
-          return;
-        } catch (err: unknown) {
-          lastError = err instanceof UpstreamError ? err : new UpstreamError(errorMessage(err), 502);
-          sendCouncilStatus(send, modelId, "failed", "synthesis", lastError.message);
+    for (const modelId of moderatorModelIds(body, participants)) {
+      try {
+        sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
+        const { emitted } = await streamTextEvents(send, body, modelId, [
+          {
+            role: "system",
+            content: councilSynthesisPrompt(
+              qualityModeFor(body.qualityMode),
+              participants.length,
+              debaterAliases,
+              participants.includes(modelId)
+            ),
+          },
+          { role: "user", content: councilBlock },
+        ]);
+        if (!emitted) {
+          // Upstream closed without producing any verdict text — treat as a
+          // failure so the next moderator fallback gets a turn.
+          throw new UpstreamError(`${getModelAlias(modelId)} returned an empty verdict.`, 502);
         }
+        sendCouncilStatus(send, modelId, "done", "synthesis", "Verdict complete");
+        return;
+      } catch (err: unknown) {
+        lastError = err instanceof UpstreamError ? err : new UpstreamError(errorMessage(err), 502);
+        sendCouncilStatus(send, modelId, "failed", "synthesis", lastError.message);
       }
-    } finally {
-      stopHeartbeat();
+    }
+
+    // Every moderator failed. The debate itself still succeeded and cost a
+    // dozen upstream calls, so hand back the closing positions rather than
+    // discarding the whole run behind an error card.
+    if (allNotes.length > 0) {
+      const finalRound = allNotes[allNotes.length - 1].round;
+      const closing = allNotes.filter((note) => note.round === finalRound);
+      send({
+        type: "delta",
+        text:
+          `_No model was available to write the verdict (${lastError?.message ?? "synthesis unavailable"}). ` +
+          `The council's closing positions are below._\n\n`,
+      });
+      for (const note of closing) {
+        send({ type: "delta", text: `**${note.alias}**\n\n${note.content}\n\n` });
+      }
+      return;
     }
 
     throw lastError ?? new UpstreamError("Model council synthesis failed.", 502);
