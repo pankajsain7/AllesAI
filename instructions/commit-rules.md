@@ -1,7 +1,7 @@
 # Agent Commit Rules
 
 ## Git identity
-- `user.name = Xanoster` / `user.email = techypankaj@gmail.com`
+- `user.name = pankajsain7` / `user.email = techypankaj@gmail.com`
 - Verify with `git config user.name` and `git config user.email` before pushing.
 
 ## Commits
@@ -14,4 +14,4 @@
 - Check `git status` and `git log --oneline`.
 - Confirm branch and remote are correct.
 - Check `.env*` files before every push and make sure no secrets, API keys, or tokens are staged or mentioned in the commit.
-- Push only with the `Xanoster` account.
+- Push only with the `pankajsain7` account.
