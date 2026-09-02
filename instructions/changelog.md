@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-02] Require pull-request workflow for all Git publishing
+**Changed:** `instructions/commit-rules.md`
+**Why:** User asked for every Git publish request to use a feature branch, pull request, and merge, authenticated as `pankajsain7` with the configured PAT.
+**Summary:** The repository rules now require branch creation, a scoped verified commit, PAT-authenticated push as `pankajsain7`, PR creation to `main`, and merge after checks pass. The PAT must be sourced without ever appearing in output, history, or Git content; a missing required scope must be reported rather than bypassed with another account.
+
 ## [2026-09-02] Consensus/council quality: budgeting, judging, routing and failure handling
 **Changed:** `src/app/api/consensus/route.ts`, `src/lib/answer-budget.ts` (new), `scripts/check-budget.mjs` (new), `package.json`
 **Why:** Audit of the consensus/council pipeline for answer quality. Found several defects that silently degraded every run rather than surfacing as errors.
