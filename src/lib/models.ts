@@ -266,22 +266,38 @@ export const BEDROCK_KNOWN_MODELS: Record<
     paramSize: "120B",
     bestFor: "Reasoning, agents",
   },
-  "zai.glm-4.7": {
-    label: "GLM 4.7",
-    shortLabel: "GLM 4.7",
+  "zai.glm-5": {
+    label: "GLM 5",
+    shortLabel: "GLM 5",
     provider: "zhipu",
     category: "Reasoning",
     context: 200000,
-    bestFor: "General reasoning",
+    bestFor: "Flagship reasoning, synthesis",
+  },
+  "google.gemma-3-27b-it": {
+    label: "Gemma 3 27B",
+    shortLabel: "Gemma 3 27B",
+    provider: "gemini",
+    category: "General",
+    context: 128000,
+    paramSize: "27B",
+    bestFor: "General chat",
+  },
+  "minimax.minimax-m2.1": {
+    label: "MiniMax M2.1",
+    shortLabel: "MiniMax M2.1",
+    provider: "minimax",
+    category: "General",
+    context: 200000,
+    bestFor: "General chat",
   },
 };
 
-export const DEFAULT_BEDROCK_MODEL_IDS = [
-  "zai.glm-4.7-flash",
-  "moonshotai.kimi-k2.5",
-  "deepseek.v3.2",
-  "mistral.ministral-3-14b-instruct",
-];
+// Every curated model is available by default (same pattern as OpenCode's
+// DEFAULT_OPENCODE_MODEL_IDS) — there is no Bedrock browse/import UI, so
+// anything left out here is permanently unreachable in every picker AND in
+// consensus/council's model pool.
+export const DEFAULT_BEDROCK_MODEL_IDS = Object.keys(BEDROCK_KNOWN_MODELS);
 
 export function toBedrockModelId(modelName: string): string {
   return `${BEDROCK_MODEL_PREFIX}${modelName}`;

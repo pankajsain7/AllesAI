@@ -304,8 +304,9 @@ export const useSettings = create<SettingsState>()(
           bedrockApiKey: state.bedrockApiKey ?? "",
           bedrockEnabled: state.bedrockEnabled ?? true,
           // Union with the current defaults so a model added to the roster later
-          // (e.g. Ministral 14B) appears for users who already had Bedrock models
-          // persisted, instead of being frozen at whatever list existed before.
+          // (e.g. Ministral 14B, then GLM 5/Gemma 3 27B/MiniMax M2.1) appears for
+          // users who already had Bedrock models persisted, instead of being
+          // frozen at whatever list existed before.
           bedrockModels: sanitizeModelNames([
             ...(state.bedrockModels ?? []),
             ...DEFAULT_BEDROCK_MODEL_IDS,
@@ -587,6 +588,9 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   // Deduped: 120B already covers this via Groq and Ollama Cloud, so a smaller
   // same-family Groq variant added nothing.
   "openai/gpt-oss-20b": "openai/gpt-oss-120b",
+  // GLM 5 supersedes GLM 4.7 as the Bedrock flagship (glm-4.7-flash stays as
+  // the fast variant).
+  "bedrock/zai.glm-4.7": "bedrock/zai.glm-5",
 };
 
 function findLegacyModelIds(modelId: string): string[] {
