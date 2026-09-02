@@ -58,7 +58,9 @@ export const CONSENSUS_MODEL_ROSTER: Record<string, RosterEntry> = {
   "bedrock/nvidia.nemotron-super-3-120b": { tier: "backup", latencyS: 0.6 },
   "bedrock/mistral.ministral-3-14b-instruct": { tier: "backup", latencyS: 0.5 },
   "bedrock/openai.gpt-oss-120b": { tier: "backup", latencyS: 0.5 },
-  "bedrock/zai.glm-4.7": { tier: "backup", latencyS: 0.6 },
+  "bedrock/zai.glm-5": { tier: "backup", latencyS: 0.6 },
+  "bedrock/google.gemma-3-27b-it": { tier: "backup", latencyS: 0.5 },
+  "bedrock/minimax.minimax-m2.1": { tier: "backup", latencyS: 1.2 },
   // Measured 0.6s and 4.1s to first token on separate runs, so bench only.
   "bedrock/moonshotai.kimi-k2.5": { tier: "backup", latencyS: 4.1 },
 

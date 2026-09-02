@@ -19,13 +19,18 @@ import {
   type SharedResultJudge,
   type SharedResultType,
 } from "@/lib/store";
+import { COUNCIL_ROUND_TITLES } from "@/lib/effort";
 import { Markdown } from "./Markdown";
 
-const ROUND_ORDER: CouncilRoundId[] = ["opening", "critique", "convergence"];
+const ROUND_ORDER: CouncilRoundId[] = [
+  "opening",
+  "critique",
+  "rebuttal",
+  "convergence",
+  "closing",
+];
 const ROUND_TITLES: Record<CouncilRoundId, string> = {
-  opening: "Opening",
-  critique: "Critique",
-  convergence: "Convergence",
+  ...COUNCIL_ROUND_TITLES,
   synthesis: "Final synthesis",
 };
 

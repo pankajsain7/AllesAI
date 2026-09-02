@@ -16,8 +16,9 @@
     "check:key-forwarding": "node --import tsx scripts/check-client-key-forwarding.mjs",
     "check:consensus": "node --import tsx scripts/check-consensus.mjs",
     "check:consensus:live": "node --import tsx scripts/check-consensus.mjs --live",
+    "check:effort": "node --import tsx scripts/check-effort.mjs",
     "check:chat": "node scripts/check-chat.mjs",
-    "check:all": "npm run check:models && npm run check:ssrf && npm run check:persistence && npm run check:hydration-race && npm run check:bedrock-toggle && npm run check:bedrock-selection && npm run check:key-forwarding && npm run check:consensus"
+    "check:all": "npm run check:models && npm run check:ssrf && npm run check:persistence && npm run check:hydration-race && npm run check:bedrock-toggle && npm run check:bedrock-selection && npm run check:key-forwarding && npm run check:consensus && npm run check:effort"
   },
   "dependencies": {
     "clsx": "^2.1.1",

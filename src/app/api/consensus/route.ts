@@ -1,5 +1,13 @@
 import { NextRequest } from "next/server";
 import { getModelAlias } from "@/lib/model-rules";
+import {
+  CONSENSUS_EFFORT,
+  COUNCIL_EFFORT,
+  COUNCIL_ROUND_TITLES,
+  isEffortLevel,
+  type CouncilDebateRoundId,
+  type EffortLevel,
+} from "@/lib/effort";
 import { assertSafeUpstreamUrl } from "@/lib/ssrf";
 
 export const runtime = "nodejs";
@@ -24,8 +32,9 @@ const STREAM_IDLE_TIMEOUT_MS = 40_000;
 // the server is still working through its fallback chain.
 const HEARTBEAT_INTERVAL_MS = 12_000;
 
-// Starting context budget (chars). Halved on each 413/context-too-large retry
-// so the synthesizer always gets a response even with many long model answers.
+// Starting context budget (chars) for the Default effort level. Pro and Ultra
+// raise it (see lib/effort.ts). Halved on each 413/context-too-large retry so
+// the synthesizer always gets a response even with many long model answers.
 const INITIAL_CONTEXT_BUDGET = 280_000;
 
 // Council debaters only need enough context to understand the topic and debate
@@ -33,8 +42,9 @@ const INITIAL_CONTEXT_BUDGET = 280_000;
 // reduces latency and avoids context-overflow rejections mid-debate.
 const COUNCIL_RESPONSE_BUDGET = 80_000;
 
-// Maximum council notes shown to each debater per turn. Caps the context that
-// grows each round so later rounds don't hit token limits.
+// Maximum council notes shown to each debater per turn, at the Default effort
+// level. Caps the context that grows each round so later rounds don't hit token
+// limits. Pro and Ultra raise it (see lib/effort.ts).
 const COUNCIL_HISTORY_CAP = 6;
 
 // The final moderator receives the original answers plus every debate note.
@@ -78,6 +88,8 @@ type RequestBody = {
   judgeModel?: string;
   judgeFallbackModels?: string[];
   judgeModels?: string[];
+  /** Effort tier for this run. Absent/invalid means "default". */
+  effort?: EffortLevel;
   apiKey?: string;
   opencodeApiKey?: string;
   bedrockApiKey?: string;
@@ -105,7 +117,7 @@ type JudgeResult = {
 
 type ProviderKey = "ollama" | "ollama-cloud" | "opencode" | "groq" | "bedrock" | "custom";
 type QualityMode = "quick" | "deep";
-type CouncilRoundName = "opening" | "critique" | "convergence";
+type CouncilRoundName = CouncilDebateRoundId;
 type CouncilRound = {
   id: CouncilRoundName;
   title: string;
@@ -167,17 +179,25 @@ const DEEP_SECTIONS = `First output the synthesized answer. Then output "---" on
 **Missing context**
 **Model notes**`;
 
-function synthesisPrompt(mode: QualityMode, solo: boolean): string {
+function synthesisPrompt(mode: QualityMode, solo: boolean, hasJudge: boolean): string {
   const deepInstruction =
     mode === "deep"
       ? `Deep answer mode is enabled. Claim-check the most important statements against only the supplied answers, flag unsupported or conflicting claims, and explain precisely why the winning answer beat the alternatives.`
       : `Quick answer mode is enabled. Be concise, but still apply the full rubric.`;
 
-  const roleBlock = solo
-    ? `You are a rigorous expert reviewer. Only one model answer is available, so your job is to stress-test it: verify its claims, correct errors, fill gaps, and return a stronger, trustworthy final answer. Do not fabricate agreement from other models that do not exist. Be explicit that this is a single-source answer and lower your confidence accordingly.`
-    : `You are a single expert who acts as BOTH the impartial judge and the final synthesizer. There is no separate judge — you do the whole job yourself in this one pass.
+  const judgedBlock = `You are the final synthesizer. Independent judge model(s) have ALREADY scored every candidate answer, and their scorecard is included below.
+Treat the scorecard as expert evidence, not as a verdict you must obey: if the scores are wrong on the merits, say so explicitly and explain why before overriding them.
+Synthesize: resolve conflicts on the merits — not by majority vote — and produce one superior, decisive answer. Prefer specific, evidence-backed claims over vague or unsupported ones. Never copy a single model's answer wholesale; combine the strongest, best-supported parts and correct anything the models got wrong.`;
+
+  const selfJudgeBlock = `You are a single expert who acts as BOTH the impartial judge and the final synthesizer. There is no separate judge — you do the whole job yourself in this one pass.
 First, silently evaluate every candidate answer like a strict judge, scoring each on: accuracy (factual correctness, internal consistency), relevance (does it answer what was actually asked), completeness (full coverage, no gaps), clarity (clear, well-structured, actionable), and evidence (grounded in the supplied web context / verifiable specifics, not confident guesses).
 Then synthesize: resolve conflicts on the merits — not by majority vote — and produce one superior, decisive answer. Prefer specific, evidence-backed claims over vague or unsupported ones. Never copy a single model's answer wholesale; combine the strongest, best-supported parts and correct anything the models got wrong.`;
+
+  const roleBlock = solo
+    ? `You are a rigorous expert reviewer. Only one model answer is available, so your job is to stress-test it: verify its claims, correct errors, fill gaps, and return a stronger, trustworthy final answer. Do not fabricate agreement from other models that do not exist. Be explicit that this is a single-source answer and lower your confidence accordingly.`
+    : hasJudge
+      ? judgedBlock
+      : selfJudgeBlock;
 
   return `${roleBlock}
 ${MODEL_NAME_RULES}
@@ -188,16 +208,21 @@ ${deepInstruction}
 ${mode === "deep" ? DEEP_SECTIONS : QUICK_SECTIONS}`;
 }
 
-function councilPositionPrompt(mode: QualityMode): string {
+function councilPositionPrompt(mode: QualityMode, debaterCount: number): string {
   const deepInstruction =
     mode === "deep"
       ? "Deep mode: explicitly flag unsupported claims, weak assumptions, missing evidence, and any disagreement that would change the final answer."
       : "Quick mode: keep the note short while naming the single most important strength and the single biggest risk.";
 
-  return `You are one of exactly two expert models debating head-to-head to reach the single best answer for the user.
+  const roster =
+    debaterCount <= 2
+      ? "You are one of exactly two expert models debating head-to-head to reach the single best answer for the user."
+      : `You are one of ${debaterCount} expert models debating to reach the single best answer for the user. Engage with the other models individually — never lump them together as "the others".`;
+
+  return `${roster}
 ${temporalGrounding()}
-Refer to yourself and the other model only by short model names.
-This is a real debate: talk directly TO the other model, respond to its specific points, and clarify precisely where and why you disagree. Do not talk past each other.
+Refer to yourself and the other models only by short model names.
+This is a real debate: talk directly TO the other models, respond to their specific points, and clarify precisely where and why you disagree. Do not talk past each other.
 Write visible public debate notes for the user — clear, concrete, and defensible. Never include hidden chain-of-thought or private scratch reasoning; state conclusions and the evidence for them.
 Argue in good faith: concede points that are correct, and push hard on points that are wrong or unsupported. Always cite the specific claim you are addressing.
 Apply the rubric to every claim: correctness, evidence, completeness, uncertainty, disagreements, and missing context.
@@ -205,16 +230,21 @@ ${deepInstruction}
 Do not declare a final winner or write the final answer — the judge does that after the debate.`;
 }
 
-function councilSynthesisPrompt(mode: QualityMode): string {
+function councilSynthesisPrompt(mode: QualityMode, debaterCount: number): string {
   const deepInstruction =
     mode === "deep"
       ? `Deep mode: claim-check the key statements from the debate and explain precisely why your verdict beats the losing position.`
       : `Quick mode: keep the verdict concise but decisive.`;
 
-  return `You are the impartial JUDGE of a two-model debate. You did not debate; your job is to read both models' arguments across all rounds and deliver the single best final answer for the user.
+  const roster =
+    debaterCount <= 2
+      ? "a two-model debate"
+      : `a ${debaterCount}-model debate`;
+
+  return `You are the impartial JUDGE of ${roster}. You did not debate; your job is to read every model's arguments across all rounds and deliver the single best final answer for the user.
 ${MODEL_NAME_RULES}
 ${temporalGrounding()}
-Read the full debate, the original answers, and any judge scorecard. Decide each disputed point ON THE MERITS — not by splitting the difference and not by favouring the more confident or more verbose model. If BOTH debaters were wrong or missed something, correct it yourself.
+Read the full debate, the original answers, and any judge scorecard. Decide each disputed point ON THE MERITS — not by splitting the difference, not by majority vote, and not by favouring the more confident or more verbose model. If EVERY debater was wrong or missed something, correct it yourself.
 Explicitly resolve the points the debaters left disputed: say which side was right and why, citing the evidence.
 ${QUALITY_RUBRIC}
 ${deepInstruction}
@@ -242,26 +272,32 @@ Output rules (critical):
 - Format the answer well (markdown, code blocks, lists) when it helps, and cite web-backed facts with source numbers like [1] when web context was provided.`;
 }
 
-const COUNCIL_ROUNDS: CouncilRound[] = [
-  {
-    id: "opening",
-    title: "Opening",
-    instruction:
-      "Give your own best answer to the user's question in a few sentences, then state the single most important point you expect the other model to get wrong or miss. Take a clear, specific position — no hedging.",
-  },
-  {
-    id: "critique",
-    title: "Critique",
-    instruction:
-      "Read the other model's opening. Address it directly by name: say exactly which claims you agree with, which you dispute, and why. Quote or paraphrase the specific claim you are challenging. Concede any point where they were right — do not defend a weak position out of pride.",
-  },
-  {
-    id: "convergence",
-    title: "Convergence",
-    instruction:
-      "Now converge. State plainly: (1) what you and the other model now AGREE on, (2) which points remain genuinely DISPUTED and why neither side has conceded, and (3) the concrete facts/steps the final answer must contain. Be specific and actionable — this is the material the judge will rule on.",
-  },
-];
+// Instructions for every debate round that any effort level can schedule. The
+// effort tier decides which of these actually run, and in what order.
+const COUNCIL_ROUND_INSTRUCTIONS: Record<CouncilRoundName, string> = {
+  opening:
+    "Give your own best answer to the user's question in a few sentences, then state the single most important point you expect the other models to get wrong or miss. Take a clear, specific position — no hedging.",
+  critique:
+    "Read the other models' openings. Address them directly by name: say exactly which claims you agree with, which you dispute, and why. Quote or paraphrase the specific claim you are challenging. Concede any point where they were right — do not defend a weak position out of pride.",
+  rebuttal:
+    "You have now been critiqued. Defend or withdraw each challenged claim explicitly — do not ignore a critique you cannot answer, say plainly that you were wrong. Then press the strongest objection the others have still not answered. Bring new evidence or reasoning, not a restatement of your opening.",
+  convergence:
+    "Now converge. State plainly: (1) what you and the other models now AGREE on, (2) which points remain genuinely DISPUTED and why neither side has conceded, and (3) the concrete facts/steps the final answer must contain. Be specific and actionable — this is the material the judge will rule on.",
+  closing:
+    "Closing statement. In a short, self-contained paragraph, commit to the single answer you believe the judge should adopt, and give the one strongest reason it beats every rival position raised in this debate. No new topics — this is your final position on record.",
+};
+
+function councilRoundsFor(effort: EffortLevel): CouncilRound[] {
+  return COUNCIL_EFFORT[effort].rounds.map((id) => ({
+    id,
+    title: COUNCIL_ROUND_TITLES[id],
+    instruction: COUNCIL_ROUND_INSTRUCTIONS[id],
+  }));
+}
+
+function effortOf(body: RequestBody): EffortLevel {
+  return isEffortLevel(body.effort) ? body.effort : "default";
+}
 
 function unique(values: Array<string | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
@@ -893,7 +929,7 @@ function synthesisMessages(body: RequestBody, judge: JudgeResult | null): ChatMe
   const systemContent =
     body.mode === "super"
       ? superSynthesisPrompt()
-      : synthesisPrompt(qualityModeFor(body.qualityMode), solo);
+      : synthesisPrompt(qualityModeFor(body.qualityMode), solo, Boolean(judge));
   return [
     { role: "system", content: systemContent },
     { role: "user", content },
@@ -911,17 +947,26 @@ function isContextOverflow(err: UpstreamError): boolean {
 async function runSingle(body: RequestBody): Promise<Response> {
   const models = unique([body.consensusModel, ...(body.fallbackModels ?? [])]);
   if (models.length === 0) throw new UpstreamError("Missing consensusModel", 400);
+  const effort = CONSENSUS_EFFORT[effortOf(body)];
 
   return createNdjsonResponse(async (send) => {
-    // Consensus uses a single expert model that is BOTH judge and synthesizer.
-    // If a model fails or the context is too large we silently try the next
-    // fallback, halving the context budget on each overflow.
-    let contextBudget = INITIAL_CONTEXT_BUDGET;
+    // Default effort uses a single expert model that is BOTH judge and
+    // synthesizer. Pro/Ultra run independent judges first and hand their merged
+    // scorecard to the synthesizer. If a model fails or the context is too
+    // large we silently try the next fallback, halving the budget on overflow.
+    let contextBudget = effort.contextBudget;
     let lastError: UpstreamError | null = null;
 
     // Keep the connection alive while we wait for the first token / fall back.
     const stopHeartbeat = startHeartbeat(send);
     try {
+      // Judge scoring is advisory: if every judge fails we still synthesize.
+      // Requires an explicit panel — without one maybeRunJudge would fall back
+      // to the synthesizer itself, which is self-assessment, not an independent
+      // second opinion.
+      const hasJudgePanel = unique(body.judgeModels ?? []).length > 0;
+      const judge = effort.judges > 0 && hasJudgePanel ? await maybeRunJudge(send, body) : null;
+
       for (const modelId of models) {
         // Retry the same model once on a transient error, but only while it has
         // not streamed anything yet — retrying mid-answer would duplicate text.
@@ -933,7 +978,7 @@ async function runSingle(body: RequestBody): Promise<Response> {
           };
           try {
             const effectiveResponses = truncateResponses(body.responses, contextBudget);
-            const messages = synthesisMessages({ ...body, responses: effectiveResponses }, null);
+            const messages = synthesisMessages({ ...body, responses: effectiveResponses }, judge);
             const { emitted } = await streamTextEvents(trackedSend, body, modelId, messages);
             if (!emitted) {
               throw new UpstreamError(`${getModelAlias(modelId)} returned an empty answer.`, 502);
@@ -967,10 +1012,10 @@ async function runSingle(body: RequestBody): Promise<Response> {
   });
 }
 
-function formatCouncilHistory(notes: CouncilNote[]): string {
+function formatCouncilHistory(notes: CouncilNote[], historyCap = COUNCIL_HISTORY_CAP): string {
   if (notes.length === 0) return "No previous council notes yet.";
   return notes
-    .slice(-COUNCIL_HISTORY_CAP)
+    .slice(-historyCap)
     .map((note) => `\n--- ${note.roundTitle} / ${note.alias} ---\n${note.content}`)
     .join("\n");
 }
@@ -1000,12 +1045,14 @@ async function generateCouncilNote(
   modelId: string,
   round: CouncilRound,
   baseBlock: string,
-  notes: CouncilNote[]
+  notes: CouncilNote[],
+  debaterCount: number,
+  historyCap: number
 ): Promise<CouncilNote> {
   const alias = getModelAlias(modelId);
   const content = await withTransientRetry(() =>
     generateText(body, modelId, [
-      { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode)) },
+      { role: "system", content: councilPositionPrompt(qualityModeFor(body.qualityMode), debaterCount) },
       {
         role: "user",
         content:
@@ -1013,7 +1060,7 @@ async function generateCouncilNote(
           `Round: ${round.title}\n` +
           `Your task: ${round.instruction}\n\n` +
           `${baseBlock}\n\n` +
-          `Previous visible council notes:\n${formatCouncilHistory(notes)}\n\n` +
+          `Previous visible council notes:\n${formatCouncilHistory(notes, historyCap)}\n\n` +
           `Respond as ${alias}. Start with "${alias}:". Keep it concise and user-visible.`,
       },
     ])
@@ -1048,13 +1095,16 @@ function moderatorModelIds(body: RequestBody, participants: string[]): string[] 
 }
 
 async function runCouncil(body: RequestBody): Promise<Response> {
+  const effort = COUNCIL_EFFORT[effortOf(body)];
+  const rounds = councilRoundsFor(effortOf(body));
   let candidates = unique(body.candidateModels ?? []);
   let fallbacks = unique(body.fallbackModels ?? []);
   // Start by combining all available models to maximize chances of success.
-  // If fewer than 2 candidate debaters, backfill from the fallback pool.
-  if (candidates.length < 2) {
+  // If fewer debaters than the tier wants, backfill from the fallback pool.
+  if (candidates.length < effort.debaters) {
+    const backfill = fallbacks.filter((id) => !candidates.includes(id));
+    candidates = unique([...candidates, ...backfill]).slice(0, effort.debaters);
     fallbacks = fallbacks.filter((id) => !candidates.includes(id));
-    candidates = unique([...candidates, ...fallbacks]);
   }
   // If still only 1 model, use it twice (same model debates itself).
   if (candidates.length === 1) {
@@ -1079,12 +1129,20 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       sendCouncilStatus(send, candidate, "queued");
     }
 
-    for (const round of COUNCIL_ROUNDS) {
+    for (const round of rounds) {
       send({ type: "round_start", round: round.id, title: round.title });
       const settled = await Promise.allSettled(
         participants.map(async (modelId) => {
           sendCouncilStatus(send, modelId, "running", round.id);
-          return generateCouncilNote(body, modelId, round, baseBlock, allNotes);
+          return generateCouncilNote(
+            body,
+            modelId,
+            round,
+            baseBlock,
+            allNotes,
+            participants.length,
+            effort.historyCap
+          );
         })
       );
       const nextParticipants: string[] = [];
@@ -1120,7 +1178,15 @@ async function runCouncil(body: RequestBody): Promise<Response> {
           sendCouncilStatus(send, modelId, "replaced", round.id, `Replaced by ${getModelAlias(fallback)}`, fallback);
           sendCouncilStatus(send, fallback, "running", round.id, `Replacing ${getModelAlias(modelId)}`);
           try {
-            replacementNote = await generateCouncilNote(body, fallback, round, baseBlock, allNotes);
+            replacementNote = await generateCouncilNote(
+              body,
+              fallback,
+              round,
+              baseBlock,
+              allNotes,
+              participants.length,
+              effort.historyCap
+            );
             // Strip any model name prefix from replacement note as well.
             const cleanReplacement = { ...replacementNote, content: stripModelPrefix(replacementNote.content, getModelAlias(fallback)) };
             allNotes.push(cleanReplacement);
@@ -1148,6 +1214,10 @@ async function runCouncil(body: RequestBody): Promise<Response> {
       }
     }
 
+    // Judge scoring is a non-streaming call that can take tens of seconds with a
+    // full Ultra panel, so the heartbeat has to cover it too — otherwise the
+    // client's stall watchdog can abort a run that is still healthy.
+    const stopHeartbeat = startHeartbeat(send);
     const judge = await maybeRunJudge(send, body);
     const synthesisBaseBlock = formatResponseBlock(
       body.prompt,
@@ -1171,15 +1241,17 @@ async function runCouncil(body: RequestBody): Promise<Response> {
 
     send({ type: "round_start", round: "synthesis", title: "Judge's verdict" });
     let lastError: UpstreamError | null = null;
-    // Keep the client connection alive while we wait for the synthesizer's
-    // first token and, if needed, work through the moderator fallback chain.
-    const stopHeartbeat = startHeartbeat(send);
+    // The heartbeat started before judging is still running, and keeps the
+    // connection alive through the moderator fallback chain too.
     try {
       for (const modelId of moderatorModelIds(body, participants)) {
         try {
           sendCouncilStatus(send, modelId, "running", "synthesis", "Judging the debate");
           const { emitted } = await streamTextEvents(send, body, modelId, [
-            { role: "system", content: councilSynthesisPrompt(qualityModeFor(body.qualityMode)) },
+            {
+              role: "system",
+              content: councilSynthesisPrompt(qualityModeFor(body.qualityMode), participants.length),
+            },
             { role: "user", content: councilBlock },
           ]);
           if (!emitted) {
@@ -1244,6 +1316,9 @@ function validateRequestBody(body: RequestBody): string | null {
   ] as const) {
     const error = validateModelIdList(value, field);
     if (error) return error;
+  }
+  if (body.effort !== undefined && !isEffortLevel(body.effort)) {
+    return `effort must be one of "default", "pro", or "ultra".`;
   }
   return null;
 }
