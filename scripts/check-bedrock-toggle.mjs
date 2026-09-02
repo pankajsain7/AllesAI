@@ -119,7 +119,7 @@ console.log("\n=== Scenario C: existing user, persisted AT version 11 with bedro
   check("the ON state is actually persisted", persisted.state.bedrockEnabled === true, JSON.stringify(persisted.state.bedrockEnabled));
 }
 
-console.log("\n=== Scenario D: existing user at version 11, missing a model added later (Ministral) ===\n");
+console.log("\n=== Scenario D: existing user with models retired from the catalog (glm-4.7-flash, ministral-14b) ===\n");
 {
   localStorage.setItem(
     "alles-ai-settings",
@@ -145,8 +145,13 @@ console.log("\n=== Scenario D: existing user at version 11, missing a model adde
         ollamaCloudModels: [],
         bedrockApiKey: "ABSKtest=",
         bedrockEnabled: true,
-        // Persisted before Ministral 14B was added to DEFAULT_BEDROCK_MODEL_IDS.
-        bedrockModels: ["zai.glm-4.7-flash", "moonshotai.kimi-k2.5", "deepseek.v3.2"],
+        // Persisted before the catalog was decluttered to one flagship per vendor.
+        bedrockModels: [
+          "zai.glm-4.7-flash",
+          "mistral.ministral-3-14b-instruct",
+          "moonshotai.kimi-k2.5",
+          "deepseek.v3.2",
+        ],
         customProviders: [],
       },
       version: 11,
@@ -155,8 +160,15 @@ console.log("\n=== Scenario D: existing user at version 11, missing a model adde
   const { useSettings } = await import("../src/lib/store.ts?d=" + Date.now());
   await new Promise((r) => setTimeout(r, 20));
   const models = useSettings.getState().bedrockModels;
-  check("Ministral 14B is added on migrate to v12", models.includes("mistral.ministral-3-14b-instruct"), JSON.stringify(models));
+  check("retired glm-4.7-flash is remapped to glm-5, not just dropped", models.includes("zai.glm-5"), JSON.stringify(models));
+  check("retired ministral-3-14b-instruct is remapped to mistral-large-3", models.includes("mistral.mistral-large-3-675b-instruct"), JSON.stringify(models));
+  check("the retired names themselves no longer appear", !models.includes("zai.glm-4.7-flash") && !models.includes("mistral.ministral-3-14b-instruct"), JSON.stringify(models));
   check("previously imported models are kept", models.includes("moonshotai.kimi-k2.5") && models.includes("deepseek.v3.2"));
+  check(
+    "every current default model is present after migrate",
+    Object.keys((await import("../src/lib/models.ts")).BEDROCK_KNOWN_MODELS).every((name) => models.includes(name)),
+    JSON.stringify(models)
+  );
 }
 
 console.log(failures === 0 ? "\nAll toggle checks passed." : `\n${failures} check(s) failed.`);

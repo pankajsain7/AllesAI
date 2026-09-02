@@ -23,7 +23,7 @@ const { useChat } = await import("../src/lib/store.ts");
 const convId = useChat.getState().newConversation();
 // Matches the default hero selection.
 useChat.getState().setSelectedModels(convId, [
-  "bedrock/zai.glm-4.7-flash",
+  "bedrock/zai.glm-5",
   "openai/gpt-oss-120b",
   "qwen/qwen3.8-27b",
   "bedrock/deepseek.v3.2",
@@ -69,7 +69,7 @@ const after = useChat.getState().conversations[convId].selectedModels;
 console.log("   before:", before);
 console.log("   after :", after);
 
-check("still has GLM 4.7 Flash", after.includes("bedrock/zai.glm-4.7-flash"));
+check("still has GLM 5", after.includes("bedrock/zai.glm-5"));
 check("still has DeepSeek V3.2", after.includes("bedrock/deepseek.v3.2"));
 check("still has the Groq models", after.includes("openai/gpt-oss-120b") && after.includes("qwen/qwen3.8-27b"));
 check("newly picked Kimi K2.5 was added", after.includes(kimiId));
