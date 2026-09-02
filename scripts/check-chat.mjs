@@ -21,7 +21,8 @@ const check = (label, ok, detail = "") => {
 };
 
 const keys = {
-  apiKey: env.GROQ_API_KEY,  opencodeApiKey: env.OpenCode_API_Key,
+  apiKey: env.GROQ_API_KEY,
+  opencodeApiKey: env.OpenCode_API_Key,
   ollamaApiKey: env.OLLAMA_API_KEY,
   bedrockApiKey: env.AWS_Bedrock_API_Key,
 };
@@ -65,12 +66,13 @@ async function chat(model, messages) {
 }
 
 const MODELS = [
-  "bedrock/zai.glm-4.7-flash",
+  "bedrock/zai.glm-5",
   "bedrock/moonshotai.kimi-k2.5",
   "bedrock/deepseek.v3.2",
-  "bedrock/mistral.ministral-3-14b-instruct",
+  "bedrock/mistral.mistral-large-3-675b-instruct",
   "openai/gpt-oss-120b",
-  "qwen/qwen3.8-27b",  "ollama-cloud/gemma4:31b",
+  "qwen/qwen3.8-27b",
+  "ollama-cloud/gemma4:31b",
   "opencode/laguna-s-2.1-free",
 ];
 

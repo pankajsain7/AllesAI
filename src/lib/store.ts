@@ -172,6 +172,20 @@ function sanitizeModelNames(modelNames: string[]): string[] {
   );
 }
 
+// bedrockModels stores BARE model names (no "bedrock/" prefix), so the
+// "bedrock/<name>" MODEL_ID_ALIASES map below cannot redirect them, and
+// isRemovedModelName() deliberately never matches a Bedrock vendor.model id
+// (see model-rules.ts). Catalog declutters that drop a Bedrock model must be
+// mirrored here too, or a stale name just sits in the array forever.
+const BEDROCK_NAME_ALIASES: Record<string, string> = {
+  "zai.glm-4.7-flash": "zai.glm-5",
+  "mistral.ministral-3-14b-instruct": "mistral.mistral-large-3-675b-instruct",
+};
+
+function remapBedrockNames(names: string[]): string[] {
+  return names.map((name) => BEDROCK_NAME_ALIASES[name] ?? name);
+}
+
 function sanitizeLocalModels(models: LocalOllamaModel[]): LocalOllamaModel[] {
   return models.filter((model) => !isRemovedModelName(model.name) && !isRemovedModelName(model.model));
 }
@@ -254,7 +268,7 @@ export const useSettings = create<SettingsState>()(
       bedrockEnabled: true,
       setBedrockEnabled: (v) => set({ bedrockEnabled: v }),
       bedrockModels: DEFAULT_BEDROCK_MODEL_IDS,
-      setBedrockModels: (models) => set({ bedrockModels: sanitizeModelNames(models) }),
+      setBedrockModels: (models) => set({ bedrockModels: sanitizeModelNames(remapBedrockNames(models)) }),
       groqExtraModels: [],
       setGroqExtraModels: (models) => set({ groqExtraModels: sanitizeModelNames(models) }),
       systemPrompt: "You are a helpful, concise assistant.",
@@ -301,7 +315,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 14,
+      version: 15,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -315,9 +329,11 @@ export const useSettings = create<SettingsState>()(
           // Union with the current defaults so a model added to the roster later
           // (e.g. Ministral 14B, then GLM 5/Gemma 3 27B/MiniMax M2.1) appears for
           // users who already had Bedrock models persisted, instead of being
-          // frozen at whatever list existed before.
+          // frozen at whatever list existed before. Stale names dropped from a
+          // catalog declutter (e.g. glm-4.7-flash, ministral-3-14b-instruct)
+          // are remapped to their replacement first, not just left stranded.
           bedrockModels: sanitizeModelNames([
-            ...(state.bedrockModels ?? []),
+            ...remapBedrockNames(state.bedrockModels ?? []),
             ...DEFAULT_BEDROCK_MODEL_IDS,
           ]),
           groqExtraModels: sanitizeModelNames(state.groqExtraModels ?? []),
@@ -601,9 +617,13 @@ const MODEL_ID_ALIASES: Record<string, string> = {
   // Deduped: 120B already covers this via Groq and Ollama Cloud, so a smaller
   // same-family Groq variant added nothing.
   "openai/gpt-oss-20b": "openai/gpt-oss-120b",
-  // GLM 5 supersedes GLM 4.7 as the Bedrock flagship (glm-4.7-flash stays as
-  // the fast variant).
+  // GLM 5 is now Bedrock's ONE flagship GLM entry — glm-4.7 and glm-4.7-flash
+  // are both retired from the curated catalog in its favour.
   "bedrock/zai.glm-4.7": "bedrock/zai.glm-5",
+  "bedrock/zai.glm-4.7-flash": "bedrock/zai.glm-5",
+  // Mistral Large 3 is now Bedrock's ONE flagship Mistral entry — Ministral 14B
+  // was a smaller/faster duplicate of the same vendor, not a distinct need.
+  "bedrock/mistral.ministral-3-14b-instruct": "bedrock/mistral.mistral-large-3-675b-instruct",
 };
 
 function findLegacyModelIds(modelId: string): string[] {

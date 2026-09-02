@@ -192,14 +192,6 @@ export const BEDROCK_KNOWN_MODELS: Record<
     bestFor?: string;
   }
 > = {
-  "zai.glm-4.7-flash": {
-    label: "GLM 4.7 Flash",
-    shortLabel: "GLM 4.7 Flash",
-    provider: "zhipu",
-    category: "General",
-    context: 200000,
-    bestFor: "Fast all-purpose chat",
-  },
   "moonshotai.kimi-k2.5": {
     label: "Kimi K2.5",
     shortLabel: "Kimi K2.5",
@@ -217,15 +209,6 @@ export const BEDROCK_KNOWN_MODELS: Record<
     context: 164000,
     thinking: true,
     bestFor: "Code and analysis",
-  },
-  "mistral.ministral-3-14b-instruct": {
-    label: "Ministral 3 14B",
-    shortLabel: "Ministral 14B",
-    provider: "mistral",
-    category: "General",
-    context: 128000,
-    paramSize: "14B",
-    bestFor: "Fast general answers",
   },
   "mistral.mistral-large-3-675b-instruct": {
     label: "Mistral Large 3",
@@ -257,7 +240,7 @@ export const BEDROCK_KNOWN_MODELS: Record<
     bestFor: "Analysis and reasoning",
   },
   "openai.gpt-oss-120b": {
-    label: "GPT-OSS 120B (Bedrock)",
+    label: "GPT-OSS 120B",
     shortLabel: "GPT-OSS 120B",
     provider: "openai",
     category: "Reasoning",
@@ -293,6 +276,18 @@ export const BEDROCK_KNOWN_MODELS: Record<
   },
 };
 
+// A handful of Bedrock models are the exact same underlying open-weight model
+// also offered by Groq/Ollama Cloud. Sharing their familyId (instead of the
+// generic bedrock-prefixed one in getBedrockModelInfo) merges them into ONE
+// model card with multiple API routes, so the user picks which API serves it
+// instead of seeing the same model listed 2-3 times. Only add an entry here
+// when the model is genuinely identical across providers, not just the same
+// vendor at a different size (e.g. Bedrock's Mistral Large 3 is NOT the same
+// model as Groq's — no entry for that).
+const BEDROCK_SHARED_FAMILY_IDS: Record<string, string> = {
+  "openai.gpt-oss-120b": "gpt-oss-120b",
+};
+
 // Every curated model is available by default (same pattern as OpenCode's
 // DEFAULT_OPENCODE_MODEL_IDS) — there is no Bedrock browse/import UI, so
 // anything left out here is permanently unreachable in every picker AND in
@@ -316,7 +311,7 @@ export function getBedrockModelInfo(modelName: string): ModelInfo {
     shortLabel: known?.shortLabel ?? label,
     provider: known?.provider ?? "bedrock",
     apiProvider: "bedrock",
-    familyId: `bedrock-${modelName}`,
+    familyId: BEDROCK_SHARED_FAMILY_IDS[modelName] ?? `bedrock-${modelName}`,
     free: false,
     context: known?.context ?? 128000,
     category: known?.category ?? "Bedrock",
@@ -682,7 +677,7 @@ export function getProviderGroups(): ProviderGroup[] {
 // Default selection: broad, non-duplicated hosted API coverage. Local and
 // Ollama API routes are opt-in.
 export const DEFAULT_SELECTED_MODELS = [
-  "bedrock/zai.glm-4.7-flash",
+  "bedrock/zai.glm-5",
   "openai/gpt-oss-120b",
   "qwen/qwen3.8-27b",
   "bedrock/deepseek.v3.2",
@@ -690,7 +685,7 @@ export const DEFAULT_SELECTED_MODELS = [
 
 // Preferred synthesis model. The UI falls through to the first eligible route
 // when this provider is unavailable.
-export const CONSENSUS_MODEL = "bedrock/zai.glm-4.7-flash";
+export const CONSENSUS_MODEL = "bedrock/zai.glm-5";
 
 // ollama.com cloud models aren't per-model free/paid — every plan (including
 // Free) can call every hosted model, but usage is metered against a plan's

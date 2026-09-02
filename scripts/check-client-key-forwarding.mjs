@@ -46,7 +46,7 @@ const { enhancePrompt, pickBestModels, streamModel } = await import("../src/lib/
 
 console.log("=== enhancePrompt forwards the client Bedrock/OpenCode key ===\n");
 try {
-  await enhancePrompt("bedrock/zai.glm-4.7-flash", "make this better: hi");
+  await enhancePrompt("bedrock/zai.glm-5", "make this better: hi");
 } catch (e) {
   console.log("   (network result ignored, only checking the outgoing body):", e.message.slice(0, 60));
 }
@@ -63,7 +63,7 @@ try {
 check("router call included bedrockApiKey", lastBody?.bedrockApiKey === env.AWS_Bedrock_API_Key, JSON.stringify(lastBody));
 
 console.log("\n=== retries omit failed empty assistant turns ===\n");
-const modelId = "bedrock/mistral.ministral-3-14b-instruct";
+const modelId = "bedrock/mistral.mistral-large-3-675b-instruct";
 const convId = useChat.getState().newConversation([modelId]);
 useChat.getState().addUserMessage(convId, "hi", [modelId]);
 for (let attempt = 0; attempt < 2; attempt += 1) {
