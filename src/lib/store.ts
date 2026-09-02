@@ -28,6 +28,7 @@ import {
   type ModelInfo,
 } from "./models";
 import { isRemovedModelName } from "./model-rules";
+import { isEffortLevel, type CouncilDebateRoundId, type EffortLevel } from "./effort";
 import type { ApiProviderKey } from "./providers";
 import { uid } from "./utils";
 
@@ -68,7 +69,7 @@ export type SharedResultJudge = {
   confidence?: string;
   rankings: SharedResultJudgeRanking[];
 };
-export type CouncilRoundId = "opening" | "critique" | "convergence" | "synthesis";
+export type CouncilRoundId = CouncilDebateRoundId | "synthesis";
 export type CouncilMemberStatus = "queued" | "running" | "done" | "failed" | "replaced";
 
 export type CouncilStatusEntry = {
@@ -206,6 +207,10 @@ export type SettingsState = {
   setConsensusModel: (modelId: string) => void;
   saveConsensusToChat: boolean;
   setSaveConsensusToChat: (v: boolean) => void;
+  consensusEffort: EffortLevel;
+  setConsensusEffort: (v: EffortLevel) => void;
+  councilEffort: EffortLevel;
+  setCouncilEffort: (v: EffortLevel) => void;
   localEnabled: boolean;
   setLocalEnabled: (v: boolean) => void;
   ollamaBaseUrl: string;
@@ -264,6 +269,10 @@ export const useSettings = create<SettingsState>()(
       setConsensusModel: (modelId) => set({ consensusModel: modelId }),
       saveConsensusToChat: false,
       setSaveConsensusToChat: (v) => set({ saveConsensusToChat: v }),
+      consensusEffort: "default",
+      setConsensusEffort: (v) => set({ consensusEffort: v }),
+      councilEffort: "default",
+      setCouncilEffort: (v) => set({ councilEffort: v }),
       localEnabled: false,
       setLocalEnabled: (v) => set({ localEnabled: v, availableLocalModels: [] }),
       ollamaBaseUrl: "http://localhost:11434",
@@ -292,7 +301,7 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: "alles-ai-settings",
-      version: 12,
+      version: 14,
       migrate: (persistedState) => {
         const state = persistedState as Partial<SettingsState>;
         return {
@@ -318,6 +327,8 @@ export const useSettings = create<SettingsState>()(
           compactColumns: state.compactColumns ?? false,
           consensusModel: state.consensusModel ?? CONSENSUS_MODEL,
           saveConsensusToChat: state.saveConsensusToChat ?? false,
+          consensusEffort: isEffortLevel(state.consensusEffort) ? state.consensusEffort : "default",
+          councilEffort: isEffortLevel(state.councilEffort) ? state.councilEffort : "default",
           localEnabled: state.localEnabled ?? false,
           ollamaBaseUrl: state.ollamaBaseUrl ?? "http://localhost:11434",
           ollamaApiKey: state.ollamaApiKey ?? "",
@@ -340,6 +351,8 @@ export const useSettings = create<SettingsState>()(
         compactColumns: state.compactColumns,
         consensusModel: state.consensusModel,
         saveConsensusToChat: state.saveConsensusToChat,
+        consensusEffort: state.consensusEffort,
+        councilEffort: state.councilEffort,
         localEnabled: state.localEnabled,
         ollamaBaseUrl: state.ollamaBaseUrl,
         ollamaApiKey: state.ollamaApiKey,

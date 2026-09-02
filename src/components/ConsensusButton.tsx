@@ -6,11 +6,13 @@ import {
   filterEnabledModelIds,
   useChat,
   useSettings,
+  type CouncilRoundId,
   type ProviderToggleSettings,
   type SharedResultJudge,
   type SharedResultScore,
 } from "@/lib/store";
 import { getModel } from "@/lib/models";
+import { COUNCIL_ROUND_TITLES } from "@/lib/effort";
 import {
   canUseModelForConsensus,
   getModelAlias,
@@ -167,11 +169,16 @@ export function ConsensusButton({ convId }: { convId: string }) {
     }
   }
 
-  // Council roles from the plan: two provider-diverse debaters, an independent
+  // Council roles from the plan: provider-diverse debaters, an independent
   // judge panel kept off the debate floor, and everything else on the bench.
+  // Counts are sized by the selected council effort level.
   const selectedDebaterIds = plan.debaters.filter((id) => modelCandidateIds.has(id));
   const selectedJudgeIds = plan.judges.filter((id) => modelCandidateIds.has(id));
   const councilFallbackModels = plan.councilBackups;
+
+  // Consensus Pro/Ultra pre-score the answers with independent judges; Default
+  // sends none, so the synthesizer judges the answers itself in one pass.
+  const consensusJudgeIds = plan.consensusJudges.filter((id) => modelCandidateIds.has(id));
 
   const hasAnyResponse = responses.length >= 1;
   const hasConsensusSource = Boolean(
@@ -297,12 +304,13 @@ export function ConsensusButton({ convId }: { convId: string }) {
         body: JSON.stringify({
           mode,
           qualityMode: "deep",
+          effort: mode === "council" ? plan.councilEffort.level : plan.consensusEffort.level,
           prompt: latestPrompt,
           responses,
           consensusModel: selectedConsensusModel,
           candidateModels: mode === "council" ? selectedDebaterIds : undefined,
           moderatorModels: mode === "council" ? selectedJudgeIds : undefined,
-          judgeModels: mode === "council" ? selectedJudgeIds : [],
+          judgeModels: mode === "council" ? selectedJudgeIds : consensusJudgeIds,
           // Full fallback chain — server tries each silently on failure or
           // context overflow, so the user always gets a result.
           fallbackModels: mode === "council" ? councilFallbackModels : autoFallbackModels,
@@ -582,19 +590,20 @@ export function ConsensusButton({ convId }: { convId: string }) {
 
 
 
-function isCouncilRound(value: unknown): value is "opening" | "critique" | "convergence" | "synthesis" {
-  return value === "opening" || value === "critique" || value === "convergence" || value === "synthesis";
+function isCouncilRound(value: unknown): value is CouncilRoundId {
+  return (
+    value === "synthesis" ||
+    (typeof value === "string" && value in COUNCIL_ROUND_TITLES)
+  );
 }
 
 function isCouncilStatus(value: unknown): value is "queued" | "running" | "done" | "failed" | "replaced" {
   return value === "queued" || value === "running" || value === "done" || value === "failed" || value === "replaced";
 }
 
-function roundTitle(round: "opening" | "critique" | "convergence" | "synthesis"): string {
-  if (round === "opening") return "Opening";
-  if (round === "critique") return "Critique";
-  if (round === "convergence") return "Convergence";
-  return "Final synthesis";
+function roundTitle(round: CouncilRoundId): string {
+  if (round === "synthesis") return "Final synthesis";
+  return COUNCIL_ROUND_TITLES[round];
 }
 
 function extractApiError(raw: string): string {

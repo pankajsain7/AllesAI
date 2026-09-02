@@ -4,12 +4,25 @@ import {
   getConsensusRosterEntry,
   hasProviderAccessForConsensus,
 } from "./model-rules";
+import {
+  CONSENSUS_EFFORT,
+  COUNCIL_EFFORT,
+  consensusEffortConfig,
+  councilEffortConfig,
+  maxAffordableLevel,
+  type ConsensusEffortConfig,
+  type CouncilEffortConfig,
+  type EffortLevel,
+} from "./effort";
 import type { ModelInfo } from "./models";
 import { API_PROVIDERS, type ApiProviderKey } from "./providers";
 import { getEnabledRoutes } from "./store";
 
 type PlanSettings = Parameters<typeof getEnabledRoutes>[0] &
-  Parameters<typeof hasProviderAccessForConsensus>[1];
+  Parameters<typeof hasProviderAccessForConsensus>[1] & {
+    consensusEffort?: EffortLevel;
+    councilEffort?: EffortLevel;
+  };
 
 export type ProviderReadiness = {
   provider: ApiProviderKey;
@@ -32,6 +45,17 @@ export type PlannedModel = {
   tier: "primary" | "backup" | undefined;
 };
 
+/** One selectable effort level plus whether the current models can run it. */
+export type EffortOption = {
+  level: EffortLevel;
+  label: string;
+  summary: string;
+  details: string[];
+  minModels: number;
+  /** The pool is large enough to actually run this level. */
+  available: boolean;
+};
+
 export type ConsensusPlan = {
   /** Which providers are usable right now, and why not when they aren't. */
   providers: ProviderReadiness[];
@@ -41,12 +65,23 @@ export type ConsensusPlan = {
   synthesizer?: string;
   /** Ordered bench the server silently walks if the synthesizer fails. */
   synthesizerBackups: string[];
-  /** Council mode: the two head-to-head debaters. */
+  /** Consensus mode: independent judges that pre-score answers. Empty on Default. */
+  consensusJudges: string[];
+  /** Council mode: the head-to-head debaters. */
   debaters: string[];
   /** Council mode: the independent judge panel (never a debater when avoidable). */
   judges: string[];
   /** Ordered bench used to replace any failed debater or judge. */
   councilBackups: string[];
+  /** Effort actually applied after clamping the request to available models. */
+  consensusEffort: ConsensusEffortConfig;
+  councilEffort: CouncilEffortConfig;
+  /** True when the requested level had to be clamped down to fit the pool. */
+  consensusEffortClamped: boolean;
+  councilEffortClamped: boolean;
+  /** All levels with availability, for rendering the settings selector. */
+  consensusEffortOptions: EffortOption[];
+  councilEffortOptions: EffortOption[];
   /** Human-readable reasons consensus/council cannot run, if any. */
   blockers: string[];
 };
@@ -181,25 +216,50 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
     if (contextDelta !== 0) return contextDelta;
     return (getConsensusRosterEntry(a.id)?.latencyS ?? 99) - (getConsensusRosterEntry(b.id)?.latencyS ?? 99);
   });
+  // Effort is clamped to what the pool can actually staff, so a stale "Ultra"
+  // setting degrades to the best runnable level instead of failing outright.
+  const consensusEffort = consensusEffortConfig(settings.consensusEffort, ranked.length);
+  const councilEffort = councilEffortConfig(settings.councilEffort, ranked.length);
+
   const synthesizer = synthesizerRanked[0]?.id;
   const synthesizerBackups = diversify(synthesizerRanked.filter((m) => m.id !== synthesizer))
     .map((m) => m.id)
     .slice(0, MAX_BENCH);
 
-  // Two debaters from different providers whenever possible.
+  // Pro/Ultra add independent judges that score before synthesis. They must not
+  // be the synthesizer, or the "independent" scorecard is just self-assessment.
+  const consensusJudges = diversify(ranked.filter((m) => m.id !== synthesizer))
+    .slice(0, consensusEffort.judges)
+    .map((m) => m.id);
+
+  // Debaters from different providers whenever possible.
   const debaters = diversify(ranked)
-    .slice(0, 2)
+    .slice(0, councilEffort.debaters)
     .map((m) => m.id);
 
   // Judges must be independent of the debate floor, so prefer non-debaters.
   const judgePool = diversify(ranked.filter((m) => !debaters.includes(m.id)));
-  const judges = (judgePool.length > 0 ? judgePool : diversify(ranked)).slice(0, 2).map((m) => m.id);
+  const judges = (judgePool.length > 0 ? judgePool : diversify(ranked))
+    .slice(0, councilEffort.judges)
+    .map((m) => m.id);
 
   const councilBackups = diversify(
     ranked.filter((m) => !debaters.includes(m.id) && !judges.includes(m.id))
   )
     .map((m) => m.id)
     .slice(0, MAX_BENCH);
+
+  const toOptions = <T extends { level: EffortLevel; label: string; summary: string; details: string[]; minModels: number }>(
+    table: Record<EffortLevel, T>
+  ): EffortOption[] =>
+    Object.values(table).map((config) => ({
+      level: config.level,
+      label: config.label,
+      summary: config.summary,
+      details: config.details,
+      minModels: config.minModels,
+      available: ranked.length >= config.minModels,
+    }));
 
   const blockers: string[] = [];
   if (pool.length === 0) {
@@ -225,9 +285,31 @@ export function planConsensusRun(settings: PlanSettings): ConsensusPlan {
     pool: ranked,
     synthesizer,
     synthesizerBackups,
+    consensusJudges,
     debaters,
     judges,
     councilBackups,
+    consensusEffort,
+    councilEffort,
+    consensusEffortClamped:
+      (settings.consensusEffort ?? "default") !== consensusEffort.level,
+    councilEffortClamped: (settings.councilEffort ?? "default") !== councilEffort.level,
+    consensusEffortOptions: toOptions(CONSENSUS_EFFORT),
+    councilEffortOptions: toOptions(COUNCIL_EFFORT),
     blockers,
+  };
+}
+
+/** Highest effort level the current settings could run, ignoring what is selected. */
+export function affordableEffortLevels(settings: PlanSettings): {
+  poolSize: number;
+  consensus: EffortLevel;
+  council: EffortLevel;
+} {
+  const { pool } = planConsensusRun(settings);
+  return {
+    poolSize: pool.length,
+    consensus: maxAffordableLevel(CONSENSUS_EFFORT, pool.length),
+    council: maxAffordableLevel(COUNCIL_EFFORT, pool.length),
   };
 }

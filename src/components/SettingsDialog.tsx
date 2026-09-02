@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useChat, useSettings, type LocalOllamaModel } from "@/lib/store";
+import { planConsensusRun, type EffortOption } from "@/lib/consensus-plan";
+import type { EffortLevel } from "@/lib/effort";
 import {
   MODEL_CATALOG,
   OPENCODE_KNOWN_MODELS,
@@ -13,7 +15,7 @@ import {
 } from "@/lib/models";
 import { isRemovedModelName } from "@/lib/model-rules";
 import { uid } from "@/lib/utils";
-import { ChevronDown, ExternalLink, Plus, RefreshCw, Search, Settings as SettingsIcon, Trash2, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Info, Plus, RefreshCw, Search, Settings as SettingsIcon, Trash2, X } from "lucide-react";
 
 type BrowsableModel = { id: string; name?: string; model?: string };
 
@@ -643,6 +645,8 @@ export function SettingsDialog() {
                 </div>
               </section>
 
+              <ConsensusEffortSection />
+
               <CustomProvidersSection />
 
               <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
@@ -736,6 +740,167 @@ export function SettingsDialog() {
         </div>
       )}
     </>
+  );
+}
+
+// Effort selector for one mode (consensus or council). Levels the current model
+// pool cannot staff are rendered disabled with the reason, rather than hidden —
+// otherwise a user who adds a provider key has no idea new tiers just unlocked.
+function EffortPicker({
+  title,
+  description,
+  value,
+  onChange,
+  options,
+  poolSize,
+  activeSummary,
+  clamped,
+}: {
+  title: string;
+  description: string;
+  value: EffortLevel;
+  onChange: (level: EffortLevel) => void;
+  options: EffortOption[];
+  poolSize: number;
+  activeSummary: string;
+  clamped: boolean;
+}) {
+  const [infoFor, setInfoFor] = useState<EffortLevel | null>(null);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="text-xs font-medium text-[var(--fg)]">{title}</div>
+          <div className="text-[11px] text-[var(--fg-muted)]">{description}</div>
+        </div>
+      </div>
+
+      <div className="flex gap-1">
+        {options.map((option) => {
+          const selected = option.level === value;
+          return (
+            <div key={option.level} className="flex-1">
+              <button
+                type="button"
+                disabled={!option.available}
+                onClick={() => onChange(option.level)}
+                aria-pressed={selected}
+                title={
+                  option.available
+                    ? option.summary
+                    : `Needs ${option.minModels} eligible models — you have ${poolSize}.`
+                }
+                className={
+                  "w-full rounded-md border px-2 py-1.5 text-[11px] font-medium transition " +
+                  (selected
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--fg)]"
+                    : "border-[var(--border)] bg-[var(--bg-soft)] text-[var(--fg-muted)] hover:border-[var(--border-strong)]") +
+                  (option.available ? "" : " cursor-not-allowed opacity-45")
+                }
+              >
+                {option.label}
+              </button>
+              <button
+                type="button"
+                onClick={() => setInfoFor((cur) => (cur === option.level ? null : option.level))}
+                aria-expanded={infoFor === option.level}
+                aria-label={`What ${option.label} changes`}
+                className="mt-1 flex w-full items-center justify-center gap-1 rounded text-[10px] text-[var(--fg-subtle)] hover:text-[var(--fg-muted)]"
+              >
+                <Info size={10} />
+                {option.available ? "details" : `needs ${option.minModels}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {infoFor && (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-soft)] p-2">
+          <div className="mb-1 text-[11px] font-semibold text-[var(--fg)]">
+            {options.find((o) => o.level === infoFor)?.label}
+          </div>
+          <ul className="space-y-0.5">
+            {options
+              .find((o) => o.level === infoFor)
+              ?.details.map((line) => (
+                <li key={line} className="text-[11px] leading-snug text-[var(--fg-muted)]">
+                  • {line}
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="text-[11px] text-[var(--fg-muted)]">
+        {clamped ? (
+          <span className="text-amber-600">
+            Only {poolSize} eligible model{poolSize === 1 ? "" : "s"} available, so this run uses{" "}
+            {activeSummary.charAt(0).toLowerCase() + activeSummary.slice(1)}
+          </span>
+        ) : (
+          activeSummary
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Consensus and council are tuned independently: they have different bottlenecks
+// (one long-context synthesis pass vs. a many-round multi-model debate), so a
+// single shared "effort" slider would over- or under-spend on one of them.
+function ConsensusEffortSection() {
+  const settings = useSettings((s) => s);
+  const setConsensusEffort = useSettings((s) => s.setConsensusEffort);
+  const setCouncilEffort = useSettings((s) => s.setCouncilEffort);
+
+  const plan = useMemo(() => planConsensusRun(settings), [settings]);
+  const poolSize = plan.pool.length;
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold text-[var(--fg)]">Consensus &amp; council effort</div>
+          <div className="text-[11px] text-[var(--fg-muted)]">
+            Higher effort uses more models per run for better answers, at more time and cost.
+          </div>
+        </div>
+        <StatusPill label={`${poolSize} eligible`} ok={poolSize > 0} />
+      </div>
+
+      {poolSize === 0 ? (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-soft)] px-2 py-1.5 text-[11px] text-[var(--fg-muted)]">
+          {plan.blockers[0] ?? "Add a provider key above to enable consensus and council."}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <EffortPicker
+            title="Consensus"
+            description="One synthesizer reads every answer and writes the final one."
+            value={settings.consensusEffort}
+            onChange={setConsensusEffort}
+            options={plan.consensusEffortOptions}
+            poolSize={poolSize}
+            activeSummary={plan.consensusEffort.summary}
+            clamped={plan.consensusEffortClamped}
+          />
+          <div className="border-t border-[var(--border)] pt-3">
+            <EffortPicker
+              title="Council"
+              description="Models debate each other in rounds, then judges rule on it."
+              value={settings.councilEffort}
+              onChange={setCouncilEffort}
+              options={plan.councilEffortOptions}
+              poolSize={poolSize}
+              activeSummary={plan.councilEffort.summary}
+              clamped={plan.councilEffortClamped}
+            />
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
