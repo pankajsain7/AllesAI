@@ -20,4 +20,6 @@
 - Confirm branch and remote are correct.
 - Check `.env*` files before every push and make sure no secrets, API keys, or tokens are staged or mentioned in the commit.
 - Push, create PRs, and merge only with the `pankajsain7` account. Authenticate GitHub CLI/API calls from the `github_pat_token` value in `.env.local`; never print, log, stage, commit, or paste the token into a command/history.
-- If the configured PAT lacks the scope required to create or merge a pull request, stop and report the exact missing scope. Do not substitute another account or bypass the feature-branch/PR workflow.
+- Use native `git` for branch pushes and PowerShell's `Invoke-RestMethod` against the GitHub REST API to create and merge pull requests. Do not use GitKraken, GitHub CLI, or other Git GUI/automation tools.
+- Read `github_pat_token` from `.env.local` into a PowerShell variable at runtime and pass it only in the `Authorization: Bearer` request header. Never place it in a remote URL, command argument, shell history, output, Git config, or tracked file.
+- The PAT requires `repo` scope for private-repository pushes, pull-request creation, and merging. If it lacks a required scope, stop and report the exact missing scope. Do not substitute another account or bypass the feature-branch/PR workflow.
