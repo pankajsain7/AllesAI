@@ -13,6 +13,11 @@ This file is maintained by the agent. After every task that changes code, config
 
 ---
 
+## [2026-09-02] Organize settings into provider and preference tabs
+**Changed:** `src/components/SettingsDialog.tsx`
+**Why:** Separate provider credentials from consensus and council run preferences so the settings dialog is easier to scan.
+**Summary:** Split the dialog into accessible Providers & keys and Preferences tabs. Provider configuration and model imports remain together, while independent consensus and council effort controls live under Preferences.
+
 ## [2026-09-02] Require pull-request workflow for all Git publishing
 **Changed:** `instructions/commit-rules.md`
 **Why:** User asked for every Git publish request to use a feature branch, pull request, and merge, authenticated as `pankajsain7` with the configured PAT.

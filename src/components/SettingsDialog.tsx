@@ -15,9 +15,43 @@ import {
 } from "@/lib/models";
 import { isRemovedModelName } from "@/lib/model-rules";
 import { uid } from "@/lib/utils";
-import { ChevronDown, ExternalLink, Info, Plus, RefreshCw, Search, Settings as SettingsIcon, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ExternalLink,
+  Info,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from "lucide-react";
 
 type BrowsableModel = { id: string; name?: string; model?: string };
+
+type SettingsTab = "keys" | "preferences";
+
+const SETTINGS_TABS: Array<{
+  id: SettingsTab;
+  label: string;
+  hint: string;
+  icon: typeof KeyRound;
+}> = [
+  {
+    id: "keys",
+    label: "Providers & keys",
+    hint: "Connect the APIs that serve models.",
+    icon: KeyRound,
+  },
+  {
+    id: "preferences",
+    label: "Preferences",
+    hint: "How runs behave once providers are connected.",
+    icon: SlidersHorizontal,
+  },
+];
 
 // Shared fetch/open/loading/error state for every "Browse models" panel
 // (OpenCode, Groq, and each custom provider).
@@ -252,6 +286,7 @@ function Toggle({
 
 export function SettingsDialog() {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>("keys");
   const [localLoading, setLocalLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const opencodeBrowser = useModelBrowser();
@@ -376,19 +411,60 @@ export function SettingsDialog() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 text-sm shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Settings"
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] text-sm shadow-xl"
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-[var(--fg)]">Settings</h2>
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-[var(--fg)]">Settings</h2>
+                <p className="mt-0.5 text-[11px] text-[var(--fg-muted)]">
+                  {SETTINGS_TABS.find((t) => t.id === tab)?.hint}
+                </p>
+              </div>
               <button
                 onClick={() => setOpen(false)}
-                className="rounded p-1 text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
+                aria-label="Close settings"
+                className="-mr-1 rounded p-1 text-[var(--fg-muted)] transition hover:bg-[var(--bg-soft)] hover:text-[var(--fg)]"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="border-b border-[var(--border)] px-5 py-3">
+              <div
+                role="tablist"
+                aria-label="Settings sections"
+                className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-1"
+              >
+                {SETTINGS_TABS.map((t) => {
+                  const Icon = t.icon;
+                  const active = tab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setTab(t.id)}
+                      className={
+                        "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition " +
+                        (active
+                          ? "bg-[var(--bg-elevated)] text-[var(--fg)] shadow-sm"
+                          : "text-[var(--fg-muted)] hover:text-[var(--fg)]")
+                      }
+                    >
+                      <Icon size={13} className="shrink-0" />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+              {tab === "keys" && (
               <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -644,11 +720,21 @@ export function SettingsDialog() {
                   </div>
                 </div>
               </section>
+              )}
 
-              <ConsensusEffortSection />
+              {tab === "preferences" && (
+                <>
+                  <p className="text-[11px] text-[var(--fg-muted)]">
+                    Higher effort uses more models per run for better answers, at more time and cost.
+                  </p>
+                  <ConsensusEffortSection />
+                  <CouncilEffortSection />
+                </>
+              )}
 
-              <CustomProvidersSection />
+              {tab === "keys" && <CustomProvidersSection />}
 
+              {tab === "keys" && (
               <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -685,7 +771,9 @@ export function SettingsDialog() {
                   </div>
                 </div>
               </section>
+              )}
 
+              {tab === "keys" && (
               <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
@@ -735,6 +823,7 @@ export function SettingsDialog() {
                   )}
                 </div>
               </section>
+              )}
             </div>
           </div>
         </div>
@@ -747,8 +836,6 @@ export function SettingsDialog() {
 // pool cannot staff are rendered disabled with the reason, rather than hidden —
 // otherwise a user who adds a provider key has no idea new tiers just unlocked.
 function EffortPicker({
-  title,
-  description,
   value,
   onChange,
   options,
@@ -756,8 +843,6 @@ function EffortPicker({
   activeSummary,
   clamped,
 }: {
-  title: string;
-  description: string;
   value: EffortLevel;
   onChange: (level: EffortLevel) => void;
   options: EffortOption[];
@@ -769,13 +854,6 @@ function EffortPicker({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <div className="text-xs font-medium text-[var(--fg)]">{title}</div>
-          <div className="text-[11px] text-[var(--fg-muted)]">{description}</div>
-        </div>
-      </div>
-
       <div className="flex gap-1">
         {options.map((option) => {
           const selected = option.level === value;
@@ -850,57 +928,89 @@ function EffortPicker({
 // Consensus and council are tuned independently: they have different bottlenecks
 // (one long-context synthesis pass vs. a many-round multi-model debate), so a
 // single shared "effort" slider would over- or under-spend on one of them.
-function ConsensusEffortSection() {
-  const settings = useSettings((s) => s);
-  const setConsensusEffort = useSettings((s) => s.setConsensusEffort);
-  const setCouncilEffort = useSettings((s) => s.setCouncilEffort);
-
-  const plan = useMemo(() => planConsensusRun(settings), [settings]);
-  const poolSize = plan.pool.length;
-
+function EffortSection({
+  title,
+  description,
+  poolSize,
+  blocker,
+  children,
+}: {
+  title: string;
+  description: string;
+  poolSize: number;
+  blocker: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold text-[var(--fg)]">Consensus &amp; council effort</div>
-          <div className="text-[11px] text-[var(--fg-muted)]">
-            Higher effort uses more models per run for better answers, at more time and cost.
-          </div>
+          <div className="text-xs font-semibold text-[var(--fg)]">{title}</div>
+          <div className="text-[11px] text-[var(--fg-muted)]">{description}</div>
         </div>
         <StatusPill label={`${poolSize} eligible`} ok={poolSize > 0} />
       </div>
 
       {poolSize === 0 ? (
         <div className="rounded-md border border-[var(--border)] bg-[var(--bg-soft)] px-2 py-1.5 text-[11px] text-[var(--fg-muted)]">
-          {plan.blockers[0] ?? "Add a provider key above to enable consensus and council."}
+          {blocker}
         </div>
       ) : (
-        <div className="space-y-4">
-          <EffortPicker
-            title="Consensus"
-            description="One synthesizer reads every answer and writes the final one."
-            value={settings.consensusEffort}
-            onChange={setConsensusEffort}
-            options={plan.consensusEffortOptions}
-            poolSize={poolSize}
-            activeSummary={plan.consensusEffort.summary}
-            clamped={plan.consensusEffortClamped}
-          />
-          <div className="border-t border-[var(--border)] pt-3">
-            <EffortPicker
-              title="Council"
-              description="Models debate each other in rounds, then judges rule on it."
-              value={settings.councilEffort}
-              onChange={setCouncilEffort}
-              options={plan.councilEffortOptions}
-              poolSize={poolSize}
-              activeSummary={plan.councilEffort.summary}
-              clamped={plan.councilEffortClamped}
-            />
-          </div>
-        </div>
+        children
       )}
     </section>
+  );
+}
+
+function ConsensusEffortSection() {
+  const settings = useSettings((s) => s);
+  const setConsensusEffort = useSettings((s) => s.setConsensusEffort);
+
+  const plan = useMemo(() => planConsensusRun(settings), [settings]);
+  const poolSize = plan.pool.length;
+
+  return (
+    <EffortSection
+      title="Consensus effort"
+      description="One synthesizer reads every answer and writes the final one."
+      poolSize={poolSize}
+      blocker={plan.blockers[0] ?? "Add a provider key to enable consensus."}
+    >
+      <EffortPicker
+        value={settings.consensusEffort}
+        onChange={setConsensusEffort}
+        options={plan.consensusEffortOptions}
+        poolSize={poolSize}
+        activeSummary={plan.consensusEffort.summary}
+        clamped={plan.consensusEffortClamped}
+      />
+    </EffortSection>
+  );
+}
+
+function CouncilEffortSection() {
+  const settings = useSettings((s) => s);
+  const setCouncilEffort = useSettings((s) => s.setCouncilEffort);
+
+  const plan = useMemo(() => planConsensusRun(settings), [settings]);
+  const poolSize = plan.pool.length;
+
+  return (
+    <EffortSection
+      title="Council effort"
+      description="Models debate each other in rounds, then judges rule on it."
+      poolSize={poolSize}
+      blocker={plan.blockers[0] ?? "Add a provider key to enable council."}
+    >
+      <EffortPicker
+        value={settings.councilEffort}
+        onChange={setCouncilEffort}
+        options={plan.councilEffortOptions}
+        poolSize={poolSize}
+        activeSummary={plan.councilEffort.summary}
+        clamped={plan.councilEffortClamped}
+      />
+    </EffortSection>
   );
 }
 
